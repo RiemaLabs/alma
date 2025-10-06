@@ -1,0 +1,30 @@
+# files of eth2diff
+eth2diff/eth2diff
+eth2diff/shared/
+
+# eth2fuzz
+eth2fuzz/eth2fuzz
+# corpora
+eth2fuzz/workspace/corpora/*
+# compiled fuzzing targets
+eth2fuzz/workspace/hfuzz/hfuzz_target/*
+eth2fuzz/workspace/afl/target/*
+eth2fuzz/workspace/libfuzzer/fuzz/target/*
+
+# local crashes & logs
+eth2fuzz/workspace/nimlibfuzzer/crash-*
+eth2fuzz/workspace/nimlibfuzzer/slow-unit-*
+eth2fuzz/workspace/nimlibfuzzer/timeout-*
+eth2fuzz/workspace/nimlibfuzzer/*.log
+eth2fuzz/workspace/gofuzz/crash-*
+eth2fuzz/workspace/gofuzz/*.log
+eth2fuzz/workspace/jsfuzz/crash-*
+
+
+# dev testing
+lighthouse/*
+target/
+**/*.txt
+**/*.rs.bk
+files/tools/*/bin
+.mypy_cache/

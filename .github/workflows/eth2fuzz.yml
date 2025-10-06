@@ -1,0 +1,122 @@
+name: Eth2fuzz
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'eth2fuzz/**'
+  pull_request:
+    paths:
+      - 'eth2fuzz/**'
+  # Run this once per day to be sure there is no breaking change
+  # due to client updates
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '0 0 * * *'
+
+jobs:
+  # Check code style quickly by running `rustfmt` over all code
+  rustfmt:
+    name: Check Rust fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+            components: rustfmt
+
+      - name: Run cargo fmt
+        run: cd eth2fuzz && cargo fmt --all -- --check
+
+  # Check clippy
+  clippy:
+    name: Check clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+            components: rustfmt, clippy
+
+      - name: Run cargo clippy
+        run: cd eth2fuzz && cargo clippy
+
+  # Build only eth2fuzz tool
+  build:
+    name: Building eth2fuzz cli tool
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Submodule update
+        run: git submodule update --init
+      - name: Build
+        run: cd eth2fuzz && make -f eth2fuzz.mk build
+
+  # Try to compile the lighthouse dockerfile
+  build-docker-lighthouse:
+    name: Building docker lighthouse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker
+        run: cd eth2fuzz && make lighthouse
+      - name: Run target
+        run: cd eth2fuzz && make test-lighthouse
+
+  # Try to compile the lodestar dockerfile
+  build-docker-lodestar:
+    name: Building docker lodestar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker
+        run: cd eth2fuzz && make lodestar
+      - name: Run target
+        run: cd eth2fuzz && make test-lodestar
+
+  # Try to compile the nimbus dockerfile
+  build-docker-nimbus:
+    name: Building docker nimbus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker
+        run: cd eth2fuzz && make nimbus
+      - name: Run target
+        run: cd eth2fuzz && make test-nimbus
+
+  # Try to compile the prysm dockerfile
+  build-docker-prysm:
+    name: Building docker prysm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker
+        run: cd eth2fuzz && make prysm
+      - name: Run target
+        run: cd eth2fuzz && make test-prysm
+
+  # Try to compile the teku dockerfile
+  build-docker-teku:
+    name: Building docker teku
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker
+        run: cd eth2fuzz && make teku
+      - name: Run target
+        run: cd eth2fuzz && make test-teku
+

@@ -1,0 +1,155 @@
+name: Eth2diff
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'eth2diff/**'
+  pull_request:
+    paths:
+      - 'eth2diff/**'
+  # Run this once per day to be sure there is no breaking change
+  # due to client updates
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '0 0 * * *'
+
+jobs:
+  # Check code style quickly by running `rustfmt` over all code
+  rustfmt:
+    name: Check Rust fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+            components: rustfmt
+
+      - name: Run cargo fmt
+        run: cd eth2diff && make check-fmt
+
+  # Check clippy
+  clippy:
+    name: Check clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+            components: rustfmt, clippy
+
+      - name: Run cargo clippy
+        run: cd eth2diff && cargo clippy
+
+  # Build only eth2diff tool
+  build:
+    name: Building eth2diff cli tool
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build
+        run: cd eth2diff && make build
+
+  # Build and test eth2diff docker
+  docker:
+    name: Building docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build Docker
+        run: cd eth2diff && make docker
+
+  # TODO - add dockers compilation + tests
+  # Try to compile the lighthouse dockerfile
+  build-docker-lighthouse:
+    name: Building docker lighthouse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build Docker
+        run: cd eth2diff && make lighthouse
+
+  # Try to compile the zcli dockerfile
+  build-docker-zcli:
+    name: Building docker zcli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build Docker
+        run: cd eth2diff && make zcli
+
+  # Try to compile the nimbus dockerfile
+  build-docker-nimbus:
+    name: Building docker nimbus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build Docker
+        run: cd eth2diff && make nimbus
+
+  # Try to compile the prysm dockerfile
+  build-docker-prysm:
+    name: Building docker prysm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build Docker
+        run: cd eth2diff && make prysm
+
+  # Try to compile the teku dockerfile
+  build-docker-teku:
+    name: Building docker teku
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            override: true
+
+      - name: Build Docker
+        run: cd eth2diff && make teku

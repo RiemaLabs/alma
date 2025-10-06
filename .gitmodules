@@ -1,0 +1,6 @@
+[submodule "bls-fuzz/impls/blst"]
+	path = bls-fuzz/impls/blst
+	url = https://github.com/sigp/blst.git
+[submodule "eth2fuzz/lighthouse"]
+	path = eth2fuzz/lighthouse
+	url = https://github.com/sigp/lighthouse

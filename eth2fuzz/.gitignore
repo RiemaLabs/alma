@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+
+# Rust build
+target/
+**/target/
+
+# Fuzzing (honggfuzz / cargo-hfuzz)
+hfuzz_target/
+hfuzz_workspace/
+**/hfuzz_target/
+**/hfuzz_workspace/
+rust_hfuzz.log
+
+# Logs
+*.log
+
+# Debug artifacts on macOS
+*.dSYM/
+
+# Node/Yarn (if used under workspace/jsfuzz)
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# IntelliJ / VSCode
+.idea/
+.vscode/
