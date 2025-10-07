@@ -6,6 +6,7 @@ eth2diff/shared/
 eth2fuzz/eth2fuzz
 # corpora
 # eth2fuzz/workspace/corpora/*
+*.honggfuzz.cov
 # compiled fuzzing targets
 eth2fuzz/workspace/hfuzz/hfuzz_target/*
 eth2fuzz/workspace/afl/target/*

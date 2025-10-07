@@ -14,6 +14,7 @@ rust_hfuzz.log
 
 # Logs
 *.log
+workspace/hfuzz/Cargo.lock
 
 # Debug artifacts on macOS
 *.dSYM/
