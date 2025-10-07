@@ -59,7 +59,7 @@ help:
 
 # Create an initial corpora
 corpora:
-	cd workspace/corpora/ && ./extract_corpora_from_spectests.sh
+	sh workspace/corpora/extract_corpora_from_spectests.sh
 
 
 #
