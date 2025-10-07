@@ -1,4 +1,4 @@
-FROM ubuntu:18.04 AS build
+FROM ubuntu:22.04 AS build
 
 ARG RUST_TOOLCHAIN="nightly"
 ENV CARGO_HOME=/usr/local/rust
@@ -28,10 +28,10 @@ RUN make -f eth2fuzz.mk build
 ###################################
 ############ teku #################
 
-FROM ubuntu:18.04
+FROM ubuntu:22.04
 
-ARG GIT_BRANCH="master"
-ARG T_VERSION="0.12.5"
+ARG GIT_BRANCH="stable"
+ARG TEKU_TAG="25.9.3"
 ARG PRESET="preset_mainnet"
 
 # Update ubuntu
@@ -63,23 +63,18 @@ RUN cd AFLplusplus && make distrib
 RUN cd AFLplusplus && make install
 
 
-# Install JAVA
+# Install JAVA (LTS)
 RUN apt-get update && \
 	apt-get install -y \
-		openjdk-11-jdk
+		openjdk-21-jdk
 
 WORKDIR /eth2fuzz
 
-# TODO uncomment once a9abcb472cab80cda3652268aec2a03ee8bfc1d7 is part of a suitable Teku release
-#RUN git clone \
-#	--branch "$TEKU_VERSION" \
-#	--depth 1 \
-#	https://github.com/PegaSysEng/teku.git
-
+# Clone latest Teku
 RUN git clone \
-	--branch "$T_VERSION" \
+	--branch "$TEKU_TAG" \
 	--depth 1 \
-	https://github.com/PegaSysEng/teku.git
+	https://github.com/Consensys/teku.git
 
 # Build Teku
 RUN cd teku && \
