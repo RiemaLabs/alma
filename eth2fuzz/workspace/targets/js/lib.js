@@ -44,9 +44,8 @@ function is_lodestar_valid_exception(e)  {
     // Those are "valid" exceptions. 
     if (e.name == "Error" ) {} 
     // following condition are temporary
-    // waiting for fix of https://github.com/ChainSafe/ssz/issues/23
-    // waiting for fix of https://github.com/ChainSafe/ssz/issues/22
-    // else if (e.message == "Offset is outside the bounds of the DataView" ) {} 
+    // waiting for fix of https://github.com/ChainSafe/ssz/issues/502
+    else if (e.message == "Offset is outside the bounds of the DataView" ) {} 
     // else if (e.message == "Cannot convert undefined to a BigInt" ) {} 
     else {
         throw e;
