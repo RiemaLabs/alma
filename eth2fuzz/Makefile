@@ -12,7 +12,7 @@ else
 	BUILD_ENV ?= $(shell if command -v docker >/dev/null 2>&1; then docker buildx version >/dev/null 2>&1 && printf "DOCKER_BUILDKIT=1"; fi)
 endif
 
-.PHONY: check-fmt help docker corpora fmt clippy clean clean-all
+.PHONY: check-fmt help docker corpora fmt clippy clean clean-all submodules
 
 .DEFAULT_GOAL=docker-all
 
@@ -96,7 +96,7 @@ lighthouse: build_cmd = $(BUILD_ENV) docker build $(DOCKER_FLAGS) \
 	-t eth2fuzz_lighthouse \
 	. \
 	$(CACHE)
-lighthouse:
+lighthouse: submodules
 	$(build_cmd)
 	@echo 'USAGE: docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_lighthouse list'
 
@@ -252,3 +252,5 @@ fmt:
 # Run Rust clippy to make code cleaner
 clippy:
 	cargo clippy --all
+submodules:
+	@git submodule update --init --recursive

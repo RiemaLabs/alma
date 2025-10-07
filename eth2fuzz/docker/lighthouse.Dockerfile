@@ -61,6 +61,15 @@ WORKDIR /eth2fuzz
 # Copy eth2fuzz code (including workspace and configs)
 COPY . .
 
+# Ensure the vendored lighthouse is a standalone git repo so Cargo can use it as a local git source.
+RUN rm -rf lighthouse/.git \
+ && cd lighthouse \
+ && git init \
+ && git config user.email "local@eth2fuzz" \
+ && git config user.name "eth2fuzz" \
+ && git add . \
+ && git commit -m "vendor lighthouse"
+
 # Build the CLI tool
 RUN make -f eth2fuzz.mk build
 
