@@ -12,12 +12,26 @@ else
 	BUILD_ENV ?= $(shell if command -v docker >/dev/null 2>&1; then docker buildx version >/dev/null 2>&1 && printf "DOCKER_BUILDKIT=1"; fi)
 endif
 
-.PHONY: check-fmt help docker corpora fmt clippy clean clean-all submodules
+.PHONY: check-fmt help docker corpora fmt clippy clean clean-all submodules prepare-cache prefetch-lighthouse crashes-lighthouse
 
 .DEFAULT_GOAL=docker-all
 
 # NOTE: this works for windows too!
 WORKSPACE_DIR := $(realpath workspace)
+# Colors for pretty output
+RED := \033[31m
+NC  := \033[0m
+# Optional run-time flags for docker run (volumes/env/limits). Example:
+#   export DOCKER_RUN_FLAGS='-v $(HOME)/.cargo-docker/registry:/usr/local/rust/registry \
+#     -v $(HOME)/.cargo-docker/git:/usr/local/rust/git \
+#     -v $(WORKSPACE_DIR)/hfuzz/target:/eth2fuzz/workspace/hfuzz/target \
+#     -e CARGO_TARGET_DIR=/eth2fuzz/workspace/hfuzz/target'
+DOCKER_RUN_FLAGS ?=
+
+# Detect host CPU count for default fuzz threads
+CPUS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+# Default beaconstate path inside container
+BEACONSTATE_ENV := -e ETH2FUZZ_BEACONSTATE=/eth2fuzz/workspace/corpora/beaconstate
 
 clients := lighthouse nimbus prysm teku lodestar
 test_clients := $(addprefix test-,$(clients))
@@ -53,6 +67,9 @@ help:
 	@echo '    make corpora                                     Create initial corpora from Eth2 Spec tests.'
 	@echo ''
 	@echo '    make fmt                                         Run Rust fmt.'
+	@echo ''
+	@echo 'Crash helpers:'
+	@echo '    make crashes-lighthouse                           List honggfuzz crash files for lighthouse.'
 	@echo ''
 	@echo ''
 
@@ -102,7 +119,20 @@ lighthouse: submodules
 
 ## Fuzz all lighthouse targets for 1 hour each
 fuzz-lighthouse: lighthouse
-	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_lighthouse continuously -q lighthouse -t 3600 -n 1
+	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
+	@mkdir -p $(WORKSPACE_DIR)/hfuzz/logs >/dev/null 2>&1 || true
+	RUN_DOCKER_FLAGS='$(DOCKER_RUN_FLAGS)' BEACONSTATE_ENV='$(BEACONSTATE_ENV)' \
+	  /bin/sh workspace/tools/run_targets.sh eth2fuzz_lighthouse $(or $(t),3600) $(or $(n),$(CPUS)) "$(WORKSPACE_DIR)"
+
+## Prefetch dependencies into mounted caches to avoid network during fuzz runs
+prefetch-lighthouse: lighthouse prepare-cache
+	# purge stale git cache entries (commit ids change when vendoring lighthouse inside image)
+	docker run --rm $(DOCKER_RUN_FLAGS) -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
+	  --entrypoint bash eth2fuzz_lighthouse -lc 'set -e; \
+	  rm -rf /usr/local/rust/git/db/*; \
+	  rm -f /eth2fuzz/workspace/hfuzz/Cargo.lock /eth2fuzz/workspace/targets/rust/Cargo.lock; \
+	  cd /eth2fuzz/workspace/targets/rust && cargo update && cargo fetch; \
+	  cd /eth2fuzz/workspace/hfuzz && cargo update && cargo fetch'
 
 ## clean compiled fuzzing targets
 clean-lighthouse:
@@ -112,6 +142,11 @@ clean-lighthouse:
 	rm -rf workspace/hfuzz/hfuzz_target
 	# clean lighthouse libfuzzer
 	rm -rf workspace/libfuzzer/fuzz/target
+
+## Find lighthouse honggfuzz crashes saved under workspace/hfuzz/hfuzz_workspace
+crashes-lighthouse:
+	@printf "%b[lighthouse/hfuzz] crashes%b\n" "$(RED)" "$(NC)"
+	@find $(WORKSPACE_DIR)/hfuzz/hfuzz_workspace -type f -name '*.fuzz' -print 2>/dev/null | sed -e 's#^#  #'
 
 #
 # Lodestar
@@ -233,12 +268,13 @@ else
 ## Try to run each target for a minimal time
 # (prob wanna run it until at least INITed?
 # TODO break if test fails?
+
 $(test_clients): test-%:
 	@echo "Expecting exit status of $(exit_success)"
-	for i in $(shell docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_$* list); do \
-		docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_$* target $$i -t 2; \
-		test $$? -eq $(exit_success) || exit 1; \
-	done
+	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
+	@mkdir -p $(WORKSPACE_DIR)/hfuzz/logs >/dev/null 2>&1 || true
+	RUN_DOCKER_FLAGS='$(DOCKER_RUN_FLAGS)' BEACONSTATE_ENV='$(BEACONSTATE_ENV)' \
+	  /bin/sh workspace/tools/run_targets.sh eth2fuzz_$* $(or $(t),2) 1 "$(WORKSPACE_DIR)"
 endif
 
 #
@@ -254,3 +290,8 @@ clippy:
 	cargo clippy --all
 submodules:
 	@git submodule update --init --recursive
+
+# Ensure host cache directories exist (used by DOCKER_RUN_FLAGS defaults)
+prepare-cache:
+	@mkdir -p $(HOME)/.cargo-docker/home >/dev/null 2>&1 || true
+	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
