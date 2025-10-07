@@ -28,3 +28,14 @@ yarn-error.log
 # IntelliJ / VSCode
 .idea/
 .vscode/
+
+# teku
+workspace/javafuzz/out_teku_attestation/
+workspace/javafuzz/out_teku_block_header/
+workspace/javafuzz/out_teku_proposer_slashing/
+workspace/javafuzz/out_teku_attester_slashing/
+workspace/javafuzz/out_teku_bls/
+workspace/javafuzz/out_teku_voluntary_exit/
+workspace/javafuzz/out_teku_block/
+workspace/javafuzz/out_teku_deposit/
+*.class
