@@ -1,4 +1,4 @@
-FROM ubuntu:18.04 AS build
+FROM ubuntu:22.04 AS build
 
 ARG RUST_TOOLCHAIN="nightly"
 ENV CARGO_HOME=/usr/local/rust
@@ -28,10 +28,10 @@ RUN make -f eth2fuzz.mk build
 #####################################
 ############ Lodestar ###############
 
-FROM ubuntu:18.04
+FROM ubuntu:22.04
 
-ARG LODESTAR_VERSION="0.13.0"
-ARG DISCV5_VERSION="0.5.0"
+ARG LODESTAR_VERSION="1.34.1"
+ARG DISCV5_VERSION="11.0.4"
 
 # Update ubuntu
 RUN apt-get update && \
@@ -42,8 +42,8 @@ RUN apt-get update && \
 		gpg-agent \
 		git
 
-# Install nodejs
-RUN curl -sL https://deb.nodesource.com/setup_14.x | bash
+# Install Node.js (LTS)
+RUN curl -sL https://deb.nodesource.com/setup_20.x | bash
 
 # Install npm & nodejs
 RUN apt-get update && \
@@ -53,9 +53,9 @@ RUN apt-get update && \
 
 WORKDIR /eth2fuzz
 
-# Install lodestar
-RUN npm i "@chainsafe/lodestar-types@$LODESTAR_VERSION"
-RUN npm i "@chainsafe/discv5@$DISCV5_VERSION"
+# Install Lodestar (pulls in @lodestar/*, discv5, enr)
+RUN npm i "@chainsafe/lodestar@$LODESTAR_VERSION"
+RUN npm i "@chainsafe/discv5@$DISCV5_VERSION" && npm i "@chainsafe/enr@5.0.1"
 
 # Install Javascript fuzzer
 RUN npm i -g jsfuzz

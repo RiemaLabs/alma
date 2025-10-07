@@ -3,10 +3,35 @@ name: lodestar
 github: https://github.com/ChainSafe/lodestar
 npm: https://www.npmjs.com/package/@chainsafe/lodestar
 
-NOTES: you will need to install lodastar package using 
-npm i @chainsafe/lodestar-types
+NOTES: install Lodestar which includes @lodestar/types (phase0, altair, bellatrix, capella, deneb, electra)
+npm i @chainsafe/lodestar
 */
+// Load @lodestar/types for multiple forks (ESM only)
+const _forks = {
+    phase0: null,
+    altair: null,
+    bellatrix: null,
+    capella: null,
+    deneb: null,
+    electra: null,
+};
+let _enrModule = null;
+try {
+    // Preload ESM modules asynchronously; cache when available
+    import('@lodestar/types/phase0').then((m) => { _forks.phase0 = m.ssz; }).catch(() => {});
+    import('@lodestar/types/altair').then((m) => { _forks.altair = m.ssz; }).catch(() => {});
+    import('@lodestar/types/bellatrix').then((m) => { _forks.bellatrix = m.ssz; }).catch(() => {});
+    import('@lodestar/types/capella').then((m) => { _forks.capella = m.ssz; }).catch(() => {});
+    import('@lodestar/types/deneb').then((m) => { _forks.deneb = m.ssz; }).catch(() => {});
+    import('@lodestar/types/electra').then((m) => { _forks.electra = m.ssz; }).catch(() => {});
+    import('@chainsafe/enr').then((m) => { _enrModule = m; }).catch(() => {});
+} catch (e) {
+    // ignore
+}
 
+function getLoadedForks() {
+    return Object.values(_forks).filter(Boolean);
+}
 // TODO - improve to not only fuzz ssz parsing
 // but also processing function
 // need to deal with beaconstate and config loading
@@ -30,89 +55,85 @@ function is_lodestar_valid_exception(e)  {
 }
 
 function fuzz_lodestar_attestation(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.Attestation.deserialize(buf);
-    } catch (e) {
-        // verify if it's a valid exception
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.Attestation) continue;
+        try { ssz.Attestation.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 
 function fuzz_lodestar_attester_slashing(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.AttesterSlashing.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.AttesterSlashing) continue;
+        try { ssz.AttesterSlashing.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 
 
 function fuzz_lodestar_block(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.BeaconBlock.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.BeaconBlock) continue;
+        try { ssz.BeaconBlock.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 
 function fuzz_lodestar_block_header(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.BeaconBlockHeader.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.BeaconBlockHeader) continue;
+        try { ssz.BeaconBlockHeader.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 function fuzz_lodestar_deposit(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.Deposit.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.Deposit) continue; // mainly phase0
+        try { ssz.Deposit.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 function fuzz_lodestar_proposer_slashing(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.ProposerSlashing.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.ProposerSlashing) continue; // phase0
+        try { ssz.ProposerSlashing.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 function fuzz_lodestar_voluntary_exit(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.VoluntaryExit.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.VoluntaryExit) continue; // phase0
+        try { ssz.VoluntaryExit.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 
 function fuzz_lodestar_beaconstate(buf) {
-    var mainnet_1 = require("@chainsafe/lodestar-types/lib/ssz/presets/mainnet");
-    try {
-        mainnet_1.types.BeaconState.deserialize(buf);
-    } catch (e) {
-        is_lodestar_valid_exception(e);
+    const forks = getLoadedForks();
+    if (forks.length === 0) return;
+    for (const ssz of forks) {
+        if (!ssz.BeaconState) continue;
+        try { ssz.BeaconState.deserialize(buf); } catch (e) { is_lodestar_valid_exception(e); }
     }
 }
 
 // Test parsing ENR base64 encoded string
 // install with
-// npm i @chainsafe/discv5
+// npm i @chainsafe/enr
 function fuzz_lodestar_enr(buf) {
-    var discv5 = require("@chainsafe/discv5");
+    if (!_enrModule || !_enrModule.ENR) return; // module not yet available
     try {
-        discv5.ENR.decodeTxt(buf.toString());
+        _enrModule.ENR.decodeTxt(buf.toString());
     } catch (e) {
-        // TODO
         if (e.name == "Error") {}
-        //else if (e.message == "Cannot read property 'toString' of undefined") {}
-        else {throw e;}
-        //is_lodestar_valid_exception(e);
+        else { throw e; }
     }
 }
 
