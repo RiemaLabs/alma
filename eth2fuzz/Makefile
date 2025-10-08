@@ -118,7 +118,7 @@ lighthouse: submodules
 	@echo 'USAGE: docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_lighthouse list'
 
 ## Fuzz all lighthouse targets for 1 hour each
-fuzz-lighthouse: lighthouse
+fuzz-lighthouse: prefetch-lighthouse
 	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
 	@mkdir -p $(WORKSPACE_DIR)/hfuzz/logs >/dev/null 2>&1 || true
 	RUN_DOCKER_FLAGS='$(DOCKER_RUN_FLAGS)' BEACONSTATE_ENV='$(BEACONSTATE_ENV)' \
