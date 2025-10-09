@@ -10,7 +10,6 @@ use std::time::Instant;
 
 use super::bins::{ensure_size_bins, merge_hfuzz_and_corpora_then_prune_into, sample_batch};
 use super::config::RLConfig;
-use super::metrics::{read_metrics_from_env, MetricsCtx};
 use super::ppo::{PPOPolicy, Transition};
 use super::report::{
     init_run_paths, load_or_init_stats, store_stats, summarize_corpora, PruneRecord, RunManifest,
@@ -41,9 +40,6 @@ pub struct RLEngine {
     // PPO
     ppo: Option<PPOPolicy>,
     buffer: Vec<Transition>,
-    // Latest metrics context features appended to arm features
-    last_metrics: MetricsCtx,
-    last_features12: Vec<f64>,
     // Reproducibility run context
     run_id: Option<String>,
     run_paths: Option<RunPaths>,
@@ -63,8 +59,7 @@ impl RLEngine {
             rng: StdRng::seed_from_u64(seed),
             ppo: None,
             buffer: Vec::new(),
-            last_metrics: MetricsCtx::default(),
-            last_features12: vec![0.0; 12],
+            
             run_id: None,
             run_paths: None,
             run_stats: None,
@@ -163,40 +158,6 @@ impl RLEngine {
             self.run_stats = Some(stats);
         }
         Ok(())
-    }
-
-    fn select_arm_ucb1(&mut self) -> usize {
-        // Pull each arm once until all tried
-        let total_pulls: u64 = self.stats.values().map(|s| s.pulls).sum();
-        for (i, key) in self.arms.iter().enumerate() {
-            if self.stats.get(key).map(|s| s.pulls).unwrap_or(0) == 0 {
-                return i;
-            }
-        }
-        // UCB1
-        let c = self.cfg.ucb_c;
-        let ln_n = (total_pulls as f64).ln().max(1.0);
-        let mut best = 0usize;
-        let mut best_score = f64::MIN;
-        for (i, key) in self.arms.iter().enumerate() {
-            let st = self.stats.get(key).cloned().unwrap_or_default();
-            let mean = if st.pulls == 0 {
-                0.0
-            } else {
-                st.reward_sum / st.pulls as f64
-            };
-            let bonus = if st.pulls == 0 {
-                f64::INFINITY
-            } else {
-                c * (ln_n / st.pulls as f64).sqrt()
-            };
-            let score = mean + bonus;
-            if score > best_score {
-                best_score = score;
-                best = i;
-            }
-        }
-        best
     }
 
     fn select_arm_ppo(&mut self) -> (usize, Vec<Vec<f64>>, Vec<f64>) {
@@ -523,33 +484,33 @@ impl RLEngine {
             for h in after_hashes.iter() { if !before_hashes.contains(h) { mutated_new_cov += 1; } }
         }
 
-        // Collect metrics for reward shaping and next-state features
-        let (cur_metrics, feats12, deltas) = read_metrics_from_env(&self.last_metrics);
-        self.last_metrics = cur_metrics;
-        self.last_features12 = feats12.to_vec();
-
         // Restore env override to previous state
         match prev_override {
             Some(v) => env::set_var("ETH2FUZZ_CORPORA_OVERRIDE", v),
             None => env::remove_var("ETH2FUZZ_CORPORA_OVERRIDE"),
         }
 
-        // Simple reward: success -> 1.0, early quit -> 0.3; bonus for full segment duration
+        // Simple reward: success -> 1.0, early quit -> 0.3; plus throughput bonus
         let base = match res {
             Ok(()) => 1.0,
             Err(_e) => 0.3,
         };
-        let time_bonus = (dur.as_secs_f64() / segment.max(1) as f64).min(1.0) * 0.2;
-        // Dense rewards from metrics deltas
-        let mut dense = 0.0;
-        if deltas.head_switch {
-            dense += 0.05;
-        }
-        if deltas.finalized_advanced {
-            dense += 0.2;
-        }
-        if deltas.reorg_increased {
-            dense += 0.2;
+        // Iteration bonus: parse last "Summary iterations:N" from Honggfuzz log
+        let mut iter_bonus = 0.0_f64;
+        if let Ok(s2) = std::fs::read_to_string(&log_path) {
+            if let Some(line2) = s2.lines().rev().find(|l| l.contains("Summary iterations:")) {
+                if let Some(re2) = Regex::new(r"Summary iterations:\s*([0-9]+)").ok() {
+                    if let Some(cap2) = re2.captures(line2) {
+                        if let Some(m2) = cap2.get(1) {
+                            if let Ok(n2) = m2.as_str().parse::<u64>() {
+                                // ~0.2 bonus at ~200k iterations per segment
+                                let norm = (n2 as f64) / 200_000.0;
+                                iter_bonus = norm.min(1.0) * 0.2;
+                            }
+                        }
+                    }
+                }
+            }
         }
         // Reward prefers global-contributing samples; fallback to mutated_new for some density
         let units_bonus = if mutated_new_cov > 0 {
@@ -558,18 +519,26 @@ impl RLEngine {
             (mutated_new as f64 * 0.02).min(0.5)
         };
 
-        // Prune: merge hfuzz inputs with corpora and write to run outputs
+        // Prune: merge hfuzz inputs with corpora and write to run outputs (optional)
         let kept_dir = if let Some(paths) = &self.run_paths {
-            let out_root = paths.outputs_root.join("corpora_pruned");
-            std::fs::create_dir_all(&out_root)?;
-            let kept = merge_hfuzz_and_corpora_then_prune_into(
-                &ws,
-                &arm.target_name,
-                &corpora_label,
-                256,
-                &out_root,
-            )?;
-            Some(kept)
+            let save_pruned = std::env::var("ETH2FUZZ_SAVE_PRUNED")
+                .ok()
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if save_pruned {
+                let out_root = paths.outputs_root.join("corpora_pruned");
+                std::fs::create_dir_all(&out_root)?;
+                let kept = merge_hfuzz_and_corpora_then_prune_into(
+                    &ws,
+                    &arm.target_name,
+                    &corpora_label,
+                    256,
+                    &out_root,
+                )?;
+                Some(kept)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -639,7 +608,7 @@ impl RLEngine {
                 target: arm.target_name.clone(),
                 bin: arm.bin_label.clone(),
                 batch_count,
-                reward: base + time_bonus + dense + units_bonus,
+                reward: base + iter_bonus + units_bonus,
                 branch_cov_pct: cov_pct,
                 hfuzz_units_delta: Some(units_delta),
                 mutated_new: Some(mutated_new),
@@ -670,7 +639,7 @@ impl RLEngine {
             store_stats(paths, st)?;
             self.seg_index += 1;
         }
-        Ok(base + time_bonus + dense + units_bonus)
+        Ok(base + iter_bonus + units_bonus)
     }
 
     pub fn run(
@@ -690,22 +659,13 @@ impl RLEngine {
         }
         let mut remaining = total_seconds.max(0);
         while remaining > 0 {
-            let (idx, xs, old_probs) = if self.cfg.mode.to_lowercase().contains("ppo") {
-                let (idx, xs, probs) = self.select_arm_ppo();
-                (idx, xs, probs)
-            } else {
-                let idx = self.select_arm_ucb1();
-                (
-                    idx,
-                    self.build_features_for_all_arms(),
-                    vec![1.0 / self.arms.len() as f64; self.arms.len()],
-                )
-            };
+            // Use PPO policy exclusively
+            let (idx, xs, old_probs) = self.select_arm_ppo();
             let arm = self.arms[idx].clone();
             let reward = self.run_one_segment(&arm, fuzzer, segment_seconds, threads)?;
             self.update_stat(idx, reward);
 
-            if self.cfg.mode.to_lowercase().contains("ppo") {
+            if self.ppo.is_some() {
                 // push transition and update immediately (small batch) to avoid long waits
                 self.buffer.push(Transition {
                     xs,
@@ -813,8 +773,7 @@ fn super_run_target(
 impl RLEngine {
     fn feature_dim(&self) -> usize {
         // kinds one-hot (10) + bin one-hot (4) + pulls + mean_reward + seg_norm + threads_norm -> 10+4+4=18
-        // + 12 beacon/prom features
-        10 + 4 + 4 + 12
+        10 + 4 + 4
     }
 
     fn build_features_for_all_arms(&self) -> Vec<Vec<f64>> {
@@ -860,11 +819,6 @@ impl RLEngine {
         off += 1; // seg_norm placeholder (not wired)
         v[off] = 1.0;
         off += 1; // threads_norm placeholder (not wired)
-                  // append 12-d metrics features (global context)
-        for val in self.last_features12.iter() {
-            v[off] = *val;
-            off += 1;
-        }
         v
     }
 
@@ -891,22 +845,5 @@ impl RLEngine {
         Ok(workspace_dir()?.join("logs").join(&self.tag))
     }
 
-    fn context_bias_for_arm(&self, arm: &ArmKey) -> f64 {
-        // Heuristic bias: on epoch boundary or head switch/reorg, prefer attestation & block_header
-        let kind_idx = self.corpora_kind_index(&arm.target_name);
-        // decode some context from last features
-        let slot_mod = self.last_features12.get(0).cloned().unwrap_or(0.0);
-        let head_switch = self.last_features12.get(10).cloned().unwrap_or(0.0) > 0.5;
-        let reorg_bucket = self.last_features12.get(2).cloned().unwrap_or(0.0);
-        let near_boundary = slot_mod <= 0.05 || slot_mod >= 0.95;
-        let is_attestation = kind_idx == 0;
-        let is_block_header = kind_idx == 3;
-        let mut w = 1.0;
-        if near_boundary || head_switch || reorg_bucket > 0.5 {
-            if is_attestation || is_block_header {
-                w *= 1.2;
-            }
-        }
-        w
-    }
+    fn context_bias_for_arm(&self, _arm: &ArmKey) -> f64 { 1.0 }
 }

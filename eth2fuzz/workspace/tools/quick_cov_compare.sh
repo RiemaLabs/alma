@@ -306,13 +306,33 @@ if [ "$FUZZER" != "libfuzzer" ]; then
 fi
 
 echo "--- SUMMARY (target=$TARGET) ---"
-SHOW_FILES="${SHOW_FILES:-auto}"  # auto|1|0; auto shows only for libfuzzer
-if { [ "$SHOW_FILES" = "1" ] || { [ "$SHOW_FILES" = "auto" ] && [ "$FUZZER" = "libfuzzer" ]; }; }; then
+# Default: print only mutated_new_cov and coverage for both sides
+SHOW_VERBOSE="${SHOW_VERBOSE:-0}"
+if [ "$SHOW_VERBOSE" = "1" ]; then
   echo "Baseline: inputs +$BASE_DELTA, new_units +$BASE_NEW, mutated_new +$BASE_MUT, mutated_new_cov +$BASE_MUT_COV, cov: $BASE_COV%"
   echo "RL:       inputs +$RL_DELTA, new_units +$RL_NEW, mutated_new +$RL_MUT, mutated_new_cov +$RL_MUT_COV, cov: $RL_COV%"
 else
-  echo "Baseline: inputs +$BASE_DELTA, new_units +$BASE_NEW, cov: $BASE_COV%"
-  echo "RL:       inputs +$RL_DELTA, new_units +$RL_NEW, cov: $RL_COV%"
+  echo "Baseline: mutated_new_cov +$BASE_MUT_COV, cov: $BASE_COV%"
+  echo "RL:       mutated_new_cov +$RL_MUT_COV, cov: $RL_COV%"
+fi
+
+# Cleanup ephemeral dirs unless kept
+if [ "${KEEP_TMP:-0}" != "1" ]; then
+  rm -rf "$WORKSPACE_DIR/logs/${TAG}/merge_tmp" 2>/dev/null || true
+  rm -rf "$WORKSPACE_DIR/logs/${TAG}/rl/rl_input/${TARGET}" 2>/dev/null || true
+fi
+# Optionally remove baseline and RL run stats to avoid clutter
+if [ "${KEEP_BASE_RUN:-0}" != "1" ]; then
+  rm -rf "$WORKSPACE_DIR/logs/${BASE_TAG}/rl/rl_runs/$BASE_RUN_ID" 2>/dev/null || true
+fi
+if [ "${KEEP_RL_RUN:-1}" != "1" ]; then
+  rm -rf "$WORKSPACE_DIR/logs/${TAG}/rl/rl_runs/$RUN_ID" 2>/dev/null || true
+fi
+
+# Remove per-run seed copies unless kept; original corpora remain under workspace/corpora
+if [ "${KEEP_SEEDS:-0}" != "1" ]; then
+  rm -rf "$WORKSPACE_DIR/logs/${TAG}/base/seed/${TARGET}" 2>/dev/null || true
+  rm -rf "$WORKSPACE_DIR/logs/${TAG}/rl/seed/${TARGET}" 2>/dev/null || true
 fi
 
 exit 0

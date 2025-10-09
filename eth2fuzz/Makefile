@@ -345,3 +345,20 @@ reset-locks:
 ## Quick coverage compare on single target (lighthouse_attestation)
 cov-attestation: lighthouse
 	/bin/sh workspace/tools/quick_cov_compare.sh eth2fuzz_lighthouse lighthouse_attestation $(or $(T),60) $(or $(RT),60) $(or $(S),10) $(or $(n),2) $(or $(tag),covtest) $(or $(fuzzer),honggfuzz)
+## Remove all logs (workspace/logs)
+.PHONY: clean-logs
+clean-logs:
+	rm -rf workspace/logs
+
+## Remove logs for a specific tag: TAG=mytag (also removes baseline tag _base)
+.PHONY: clean-tag
+clean-tag:
+	@if [ -z "$(TAG)" ]; then echo "Usage: make clean-tag TAG=mytag"; exit 1; fi
+	rm -rf workspace/logs/$(TAG) workspace/logs/$(TAG)_base
+
+## Remove ephemeral temp dirs for all tags (merge_tmp and rl_input)
+.PHONY: clean-tmp
+clean-tmp:
+	find workspace/logs -type d -name merge_tmp -prune -exec rm -rf {} + 2>/dev/null || true
+	find workspace/logs -type d -path '*/rl/rl_input/*' -prune -exec rm -rf {} + 2>/dev/null || true
+	rm -rf workspace/rl_merge 2>/dev/null || true
