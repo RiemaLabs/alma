@@ -1,4 +1,4 @@
-use crate::env::{corpora_dir, workspace_dir};
+use crate::env::{corpora_dir, workspace_dir, state_dir};
 use crate::fuzzers::{Fuzzer, FuzzerConfig, FuzzerQuit};
 use crate::targets::Targets;
 use failure::{bail, Error};
@@ -14,6 +14,8 @@ use super::ppo::{PPOPolicy, Transition};
 use super::metrics::{MetricsCtx, read_metrics_from_env};
 use super::report::{RunManifest, RunPaths, RunStats, init_run_paths, summarize_corpora, load_or_init_stats, store_stats, SegmentRecord, PruneRecord};
 use regex::Regex;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct ArmKey {
@@ -45,6 +47,7 @@ pub struct RLEngine {
     run_stats: Option<RunStats>,
     seg_index: usize,
     tag: String,
+    best_cov_pct: f64,
 }
 
 impl RLEngine {
@@ -64,6 +67,7 @@ impl RLEngine {
             run_stats: None,
             seg_index: 0,
             tag: std::env::var("ETH2FUZZ_TAG").unwrap_or_else(|_| "default".to_string()),
+            best_cov_pct: 0.0,
         }
     }
 
@@ -254,9 +258,17 @@ impl RLEngine {
 
         // Launch run
         let start = Instant::now();
-        // count hfuzz input before run
+        // count hfuzz input before run and snapshot P0 names
         let hfuzz_input_dir = ws.join("hfuzz").join("hfuzz_workspace").join(&arm.target_name).join("input");
-        let before_units = std::fs::read_dir(&hfuzz_input_dir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(0);
+        let mut p0_names: HashSet<String> = HashSet::new();
+        let before_units = match std::fs::read_dir(&hfuzz_input_dir) {
+            Ok(rd) => {
+                let mut c = 0usize;
+                for e in rd.flatten() { let p = e.path(); if p.is_file() { c += 1; if let Some(n) = p.file_name().and_then(|s| s.to_str()) { p0_names.insert(n.to_string()); } } }
+                c
+            }
+            Err(_) => 0,
+        };
         // mark mode/tag for logs placement
         std::env::set_var("ETH2FUZZ_RUN_MODE", "rl");
         std::env::set_var("ETH2FUZZ_TAG", &self.tag);
@@ -264,6 +276,91 @@ impl RLEngine {
         let dur = start.elapsed();
         let after_units = std::fs::read_dir(&hfuzz_input_dir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(before_units);
         let units_delta = after_units.saturating_sub(before_units);
+        // compute seed hashes of this segment batch
+        let mut seed_hashes: HashSet<String> = HashSet::new();
+        if let Ok(rd) = std::fs::read_dir(&batch_dir) {
+            for e in rd.flatten() {
+                let p = e.path(); if p.is_file() {
+                    if let Ok(mut f) = std::fs::File::open(&p) {
+                        let mut hasher = Sha256::new();
+                        let _ = std::io::copy(&mut f, &mut hasher);
+                        let h = format!("{:x}", hasher.finalize());
+                        seed_hashes.insert(h);
+                    }
+                }
+            }
+        }
+        // enumerate new files and hash excluding seeds and previously seen hashes; collect paths
+        let mut mutated_new = 0usize;
+        // load global seen hashes for this target (across segments)
+        let hashes_root = self.logs_root()?.join("rl").join("hfuzz").join("hashes");
+        let hashes_file = hashes_root.join(format!("{}.txt", arm.target_name));
+        let mut seen_hashes: HashSet<String> = HashSet::new();
+        if let Ok(s) = std::fs::read_to_string(&hashes_file) {
+            for line in s.lines() { seen_hashes.insert(line.trim().to_string()); }
+        }
+        let mut newly_seen: Vec<(String, std::path::PathBuf)> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&hfuzz_input_dir) {
+            for e in rd.flatten() {
+                let p = e.path(); if !p.is_file() { continue; }
+                let is_new_name = p.file_name().and_then(|s| s.to_str()).map(|n| !p0_names.contains(n)).unwrap_or(false);
+                if !is_new_name { continue; }
+                if let Ok(mut f) = std::fs::File::open(&p) {
+                    let mut hasher = Sha256::new();
+                    let _ = std::io::copy(&mut f, &mut hasher);
+                    let h = format!("{:x}", hasher.finalize());
+                    if !seed_hashes.contains(&h) && !seen_hashes.contains(&h) {
+                        mutated_new += 1;
+                        newly_seen.push((h.clone(), p.clone()));
+                    }
+                }
+            }
+        }
+        if !newly_seen.is_empty() {
+            std::fs::create_dir_all(&hashes_root).ok();
+            let mut buf = String::new();
+            for (h, _) in newly_seen.iter() { buf.push_str(h); buf.push('\n'); }
+            let _ = std::fs::OpenOptions::new().create(true).append(true).open(&hashes_file).and_then(|mut f| std::io::Write::write_all(&mut f, buf.as_bytes()));
+        }
+
+        // LibFuzzer merge to determine samples with global coverage contribution
+        let mut mutated_new_cov = 0usize;
+        if !newly_seen.is_empty() {
+            let logs_root = self.logs_root()?;
+            let global_corpus = logs_root.join("rl").join("libfuzzer_corpus").join(&arm.target_name);
+            std::fs::create_dir_all(&global_corpus).ok();
+            let merge_newdir = logs_root.join("rl").join("libfuzzer_merge").join(format!("seg_{}", self.seg_index)).join(&arm.target_name).join("new");
+            std::fs::create_dir_all(&merge_newdir).ok();
+            // copy newly seen files into newdir
+            for (_, p) in newly_seen.iter() {
+                if let Some(fname) = p.file_name() { let _ = std::fs::copy(&p, merge_newdir.join(fname)); }
+            }
+            // snapshot hashes before
+            let mut before_hashes: HashSet<String> = HashSet::new();
+            if let Ok(rd) = std::fs::read_dir(&global_corpus) {
+                for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); before_hashes.insert(format!("{:x}", hasher.finalize())); } } }
+            }
+            // run cargo fuzz with -merge=1 -runs=0
+            let fuzz_dir = workspace_dir()?.join("libfuzzer").join("fuzz");
+            let merge_status = std::process::Command::new("cargo")
+                .args(&["+nightly","fuzz","run", &arm.target_name])
+                .arg("--")
+                .args(&["-merge=1","-runs=0"])
+                .arg(global_corpus.to_string_lossy().to_string())
+                .arg(merge_newdir.to_string_lossy().to_string())
+                .env("ETH2FUZZ_BEACONSTATE", state_dir()?.display().to_string())
+                .current_dir(&fuzz_dir)
+                .status();
+            if let Ok(st) = merge_status { let _ = st; }
+            // snapshot hashes after and count how many from newly_seen got included
+            let mut after_hashes: HashSet<String> = HashSet::new();
+            if let Ok(rd) = std::fs::read_dir(&global_corpus) {
+                for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); after_hashes.insert(format!("{:x}", hasher.finalize())); } } }
+            }
+            for (h, _) in newly_seen.iter() {
+                if !before_hashes.contains(h) && after_hashes.contains(h) { mutated_new_cov += 1; }
+            }
+        }
 
         // Collect metrics for reward shaping and next-state features
         let (cur_metrics, feats12, deltas) = read_metrics_from_env(&self.last_metrics);
@@ -287,8 +384,8 @@ impl RLEngine {
         if deltas.head_switch { dense += 0.05; }
         if deltas.finalized_advanced { dense += 0.2; }
         if deltas.reorg_increased { dense += 0.2; }
-        // Reward for new inputs discovered in this segment (fast signal)
-        let units_bonus = (units_delta as f64 * 0.01).min(0.3);
+        // Reward prefers global-contributing samples; fallback to mutated_new for some density
+        let units_bonus = if mutated_new_cov > 0 { (mutated_new_cov as f64 * 0.05).min(1.0) } else { (mutated_new as f64 * 0.02).min(0.5) };
 
         // Prune: merge hfuzz inputs with corpora and write to run outputs
         let kept_dir = if let Some(paths) = &self.run_paths {
@@ -309,6 +406,8 @@ impl RLEngine {
                 if let Some(r) = re { if let Some(cap) = r.captures(line) { if let Some(m) = cap.get(1) { cov_pct = m.as_str().parse::<f64>().ok(); } } }
             }
         }
+        let mut cov_increase = false;
+        if let Some(cp) = cov_pct { if cp > self.best_cov_pct { self.best_cov_pct = cp; cov_increase = true; } }
 
         // Mirror new inputs under logs tree for reproducibility (best-effort)
         let mirror_dir = self.logs_root()?.join("rl").join("hfuzz").join("input").join(&arm.target_name);
@@ -325,7 +424,7 @@ impl RLEngine {
         // Update run stats
         if let (Some(paths), Some(st)) = (&self.run_paths, self.run_stats.as_mut()) {
             let batch_count = std::fs::read_dir(&batch_dir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(0);
-            st.segments.push(SegmentRecord { index: self.seg_index, target: arm.target_name.clone(), bin: arm.bin_label.clone(), batch_count, reward: base + time_bonus + dense + units_bonus, branch_cov_pct: cov_pct, hfuzz_units_delta: Some(units_delta) });
+            st.segments.push(SegmentRecord { index: self.seg_index, target: arm.target_name.clone(), bin: arm.bin_label.clone(), batch_count, reward: base + time_bonus + dense + units_bonus, branch_cov_pct: cov_pct, hfuzz_units_delta: Some(units_delta), mutated_new: Some(mutated_new), mutated_new_cov: Some(mutated_new_cov) });
             if let Some(outdir) = kept_dir {
                 let kept_count = std::fs::read_dir(&outdir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(0);
                 // merged count = batch + prior corpus count (approx)

@@ -33,6 +33,10 @@ pub struct SegmentRecord {
     pub branch_cov_pct: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hfuzz_units_delta: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutated_new: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutated_new_cov: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
