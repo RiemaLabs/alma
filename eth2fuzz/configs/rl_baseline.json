@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "mode": "Bandit",
+  "exploration_rate": 0.0,
+  "ucb_c": 0.0,
+  "use_bins": false,
+  "save_policy": false
+}

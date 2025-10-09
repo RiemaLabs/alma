@@ -12,6 +12,9 @@ RL_SEG=${5:-10}
 THREADS=${6:-2}
 TAG=${7:-covtest}
 FUZZER=${8:-honggfuzz}
+# Optional overrides (baseline runs as a single segment without bins by default)
+BASE_SEG=${BASE_SEG:-$BASE_SECS}
+BASE_RL_CONFIG=${BASE_RL_CONFIG:-configs/rl_baseline.json}
 
 WORKSPACE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -207,7 +210,7 @@ docker run -v "$WORKSPACE_DIR":/eth2fuzz/workspace \
   -e ETH2FUZZ_RUN_MODE="base" \
   -e ETH2FUZZ_TAG="$BASE_TAG" \
   -e ETH2FUZZ_CORPORA_OVERRIDE="/eth2fuzz/workspace/logs/${TAG}/base/seed/${TARGET}" \
-  "$IMAGE" rl-fuzz -q "$TARGET" --fuzzer "$FUZZER" --total "$BASE_SECS" --segment "$RL_SEG" -n "$THREADS" --config configs/rl_enabled.json --run-id "$BASE_RUN_ID" --tag "$BASE_TAG" || true
+  "$IMAGE" rl-fuzz -q "$TARGET" --fuzzer "$FUZZER" --total "$BASE_SECS" --segment "$BASE_SEG" -n "$THREADS" --config "$BASE_RL_CONFIG" --run-id "$BASE_RUN_ID" --tag "$BASE_TAG" || true
 # parse baseline stats
 BASE_STATS="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/rl_runs/$BASE_RUN_ID/stats.json"
 BASE_MUT_COV="0"; BASE_MUT="0"; BASE_COV="NA"; BASE_NEW="0"; BASE_DELTA="0"
@@ -215,9 +218,17 @@ if [ -f "$BASE_STATS" ]; then
   BASE_MUT_COV=$(grep -o '"mutated_new_cov"[[:space:]]*:[[:space:]]*[0-9]\+' "$BASE_STATS" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}' || echo 0)
   # mutated_new aligns to coverage-contributing samples for non-libfuzzer
   BASE_MUT="$BASE_MUT_COV"
-  # coverage: take last non-empty branch_cov_pct
+  # coverage: take last non-empty branch_cov_pct from stats or fallback to baseline RL hfuzz log
   tmpcov=$(grep -o '"branch_cov_pct"[[:space:]]*:[[:space:]]*[0-9]\+\.?[0-9]*' "$BASE_STATS" 2>/dev/null | tail -n1 | awk -F: '{print $2+0}' || echo "")
-  [ -n "$tmpcov" ] && BASE_COV="$tmpcov"
+  if [ -n "$tmpcov" ]; then
+    BASE_COV="$tmpcov"
+  else
+    BASE_HFUZZ_LOG="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/hfuzz/logs/${TARGET}.log"
+    if [ -f "$BASE_HFUZZ_LOG" ]; then
+      tmpcov=$(grep -o 'branch_coverage_percent:[[:space:]]*[0-9]\+' "$BASE_HFUZZ_LOG" 2>/dev/null | tail -n1 | awk -F: '{print $2+0}' || echo "")
+      [ -n "$tmpcov" ] && BASE_COV="$tmpcov"
+    fi
+  fi
   # new_units from hfuzz log if present under baseline tag
   BASE_LOG="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/hfuzz/logs/${TARGET}.log"
   if [ -f "$BASE_LOG" ]; then
