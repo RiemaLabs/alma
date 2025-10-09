@@ -1,2 +1,9 @@
-# ignore some workspace folder
+# Ignore the workspace contents (mounted at runtime)
 workspace/*
+
+# Prevent accidental nested copy of the project directory itself
+# This avoids collision with the CLI binary named `eth2fuzz` at /eth2fuzz/eth2fuzz
+eth2fuzz
+
+# Common local build artifacts that should not be sent to Docker context
+target/

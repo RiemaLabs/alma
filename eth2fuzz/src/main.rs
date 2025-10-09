@@ -236,8 +236,12 @@ fn run() -> Result<(), Error> {
                         .as_secs()
                 });
             let mut engine = rl::engine::RLEngine::new(rl_cfg, seed);
-            if let Some(id) = run_id { engine.set_run_id(id); }
-            if let Some(t) = tag { engine.set_tag(t); }
+            if let Some(id) = run_id {
+                engine.set_run_id(id);
+            }
+            if let Some(t) = tag {
+                engine.set_tag(t);
+            }
             engine.run(&filter, fuzzer, total, segment, thread)?;
         }
         // Fuzz one target

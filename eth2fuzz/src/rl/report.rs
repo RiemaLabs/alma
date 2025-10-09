@@ -70,7 +70,12 @@ pub fn init_run_paths(workspace: &Path, run_id: &str) -> Result<RunPaths, Error>
     fs::create_dir_all(&outputs_root)?;
     fs::create_dir_all(&segments_dir)?;
     let stats_file = root.join("stats.json");
-    Ok(RunPaths { root, outputs_root, segments_dir, stats_file })
+    Ok(RunPaths {
+        root,
+        outputs_root,
+        segments_dir,
+        stats_file,
+    })
 }
 
 pub fn summarize_corpora(workspace: &Path) -> Result<CorporaSummary, Error> {
@@ -82,7 +87,11 @@ pub fn summarize_corpora(workspace: &Path) -> Result<CorporaSummary, Error> {
             if p.is_dir() {
                 let label = p.file_name().unwrap().to_string_lossy().to_string();
                 let mut c = 0usize;
-                for f in fs::read_dir(&p)? { if f?.path().is_file() { c+=1; } }
+                for f in fs::read_dir(&p)? {
+                    if f?.path().is_file() {
+                        c += 1;
+                    }
+                }
                 counts.insert(label, c);
             }
         }
@@ -90,13 +99,22 @@ pub fn summarize_corpora(workspace: &Path) -> Result<CorporaSummary, Error> {
     Ok(CorporaSummary { counts })
 }
 
-pub fn load_or_init_stats(paths: &RunPaths, manifest: RunManifest, init_summary: CorporaSummary) -> Result<RunStats, Error> {
+pub fn load_or_init_stats(
+    paths: &RunPaths,
+    manifest: RunManifest,
+    init_summary: CorporaSummary,
+) -> Result<RunStats, Error> {
     if paths.stats_file.exists() {
         let s = fs::read_to_string(&paths.stats_file)?;
         let st: RunStats = serde_json::from_str(&s)?;
         return Ok(st);
     }
-    let stats = RunStats { manifest, initial_corpora: init_summary, segments: vec![], prunes: vec![] };
+    let stats = RunStats {
+        manifest,
+        initial_corpora: init_summary,
+        segments: vec![],
+        prunes: vec![],
+    };
     store_stats(paths, &stats)?;
     Ok(stats)
 }

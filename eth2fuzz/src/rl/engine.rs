@@ -1,18 +1,21 @@
-use crate::env::{corpora_dir, workspace_dir, state_dir};
+use crate::env::{corpora_dir, state_dir, workspace_dir};
 use crate::fuzzers::{Fuzzer, FuzzerConfig, FuzzerQuit};
+use crate::strum::IntoEnumIterator;
 use crate::targets::Targets;
 use failure::{bail, Error};
 use rand::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::time::Instant;
-use crate::strum::IntoEnumIterator;
 
-use super::bins::{ensure_size_bins, sample_batch, merge_hfuzz_and_corpora_then_prune_into};
+use super::bins::{ensure_size_bins, merge_hfuzz_and_corpora_then_prune_into, sample_batch};
 use super::config::RLConfig;
+use super::metrics::{read_metrics_from_env, MetricsCtx};
 use super::ppo::{PPOPolicy, Transition};
-use super::metrics::{MetricsCtx, read_metrics_from_env};
-use super::report::{RunManifest, RunPaths, RunStats, init_run_paths, summarize_corpora, load_or_init_stats, store_stats, SegmentRecord, PruneRecord};
+use super::report::{
+    init_run_paths, load_or_init_stats, store_stats, summarize_corpora, PruneRecord, RunManifest,
+    RunPaths, RunStats, SegmentRecord,
+};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -71,16 +74,17 @@ impl RLEngine {
         }
     }
 
-    pub fn set_run_id(&mut self, id: String) { self.run_id = Some(id); }
-    pub fn set_tag(&mut self, t: String) { self.tag = t; }
+    pub fn set_run_id(&mut self, id: String) {
+        self.run_id = Some(id);
+    }
+    pub fn set_tag(&mut self, t: String) {
+        self.tag = t;
+    }
 
     pub fn initialize(&mut self, filter: &str) -> Result<(), Error> {
         // Build list of targets filtered by substring
         let all = crate::targets::get_targets();
-        let filtered: Vec<String> = all
-            .into_iter()
-            .filter(|t| t.contains(filter))
-            .collect();
+        let filtered: Vec<String> = all.into_iter().filter(|t| t.contains(filter)).collect();
         if filtered.is_empty() {
             bail!(format!("No targets match filter `{}`", filter));
         }
@@ -207,10 +211,18 @@ impl RLEngine {
         }
         // normalize
         let s: f64 = biased.iter().sum::<f64>().max(1e-9);
-        for i in 0..biased.len() { biased[i] /= s; }
+        for i in 0..biased.len() {
+            biased[i] /= s;
+        }
         // argmax
-        let mut best = 0usize; let mut bestp = biased[0];
-        for i in 1..biased.len() { if biased[i] > bestp { best = i; bestp = biased[i]; } }
+        let mut best = 0usize;
+        let mut bestp = biased[0];
+        for i in 1..biased.len() {
+            if biased[i] > bestp {
+                best = i;
+                bestp = biased[i];
+            }
+        }
         (best, xs, biased)
     }
 
@@ -244,27 +256,72 @@ impl RLEngine {
         let logs_root = self.logs_root()?;
         let source_dir: std::path::PathBuf = if let Some(label) = &arm.bin_label {
             if let Some(tmap) = self.bins.get(&arm.target_name) {
-                if let Some(dir) = tmap.get(label) { std::path::PathBuf::from(dir) } else { corpora_dir()?.join(&corpora_label) }
-            } else { corpora_dir()?.join(&corpora_label) }
-        } else { corpora_dir()?.join(&corpora_label) };
-        // prepare batch dir
+                if let Some(dir) = tmap.get(label) {
+                    std::path::PathBuf::from(dir)
+                } else {
+                    corpora_dir()?.join(&corpora_label)
+                }
+            } else {
+                corpora_dir()?.join(&corpora_label)
+            }
+        } else {
+            corpora_dir()?.join(&corpora_label)
+        };
+        // prepare read-only batch dir (source seeds) and per-segment input dir (working copy)
         let batch_dir = logs_root.join("rl").join("rl_batch").join(&arm.target_name);
         std::fs::create_dir_all(&batch_dir)?;
-        // clean previous batch files
-        for e in std::fs::read_dir(&batch_dir)? { let p = e?.path(); let _ = std::fs::remove_file(p); }
+        // clean previous batch files (keep dir)
+        for e in std::fs::read_dir(&batch_dir)? {
+            let p = e?.path();
+            let _ = std::fs::remove_file(p);
+        }
         // sample up to 128 files to accelerate discoveries in short runs
         let _ = sample_batch(&source_dir, &batch_dir, 128);
-        env::set_var("ETH2FUZZ_CORPORA_OVERRIDE", &batch_dir);
+        // working copy for this segment to avoid any writes to batch_dir
+        let seg_input_dir = logs_root
+            .join("rl")
+            .join("rl_input")
+            .join(&arm.target_name)
+            .join(format!("seg_{}", self.seg_index));
+        std::fs::create_dir_all(&seg_input_dir)?;
+        // clean seg_input_dir then copy from batch_dir
+        for e in std::fs::read_dir(&seg_input_dir)? {
+            let p = e?.path();
+            let _ = std::fs::remove_file(p);
+        }
+        if let Ok(rd) = std::fs::read_dir(&batch_dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_file() {
+                    if let Some(name) = p.file_name() {
+                        let _ = std::fs::copy(&p, seg_input_dir.join(name));
+                    }
+                }
+            }
+        }
+        env::set_var("ETH2FUZZ_CORPORA_OVERRIDE", &seg_input_dir);
 
         // Launch run
         let start = Instant::now();
         // count hfuzz input before run and snapshot P0 names
-        let hfuzz_input_dir = ws.join("hfuzz").join("hfuzz_workspace").join(&arm.target_name).join("input");
+        let hfuzz_input_dir = ws
+            .join("hfuzz")
+            .join("hfuzz_workspace")
+            .join(&arm.target_name)
+            .join("input");
         let mut p0_names: HashSet<String> = HashSet::new();
         let before_units = match std::fs::read_dir(&hfuzz_input_dir) {
             Ok(rd) => {
                 let mut c = 0usize;
-                for e in rd.flatten() { let p = e.path(); if p.is_file() { c += 1; if let Some(n) = p.file_name().and_then(|s| s.to_str()) { p0_names.insert(n.to_string()); } } }
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_file() {
+                        c += 1;
+                        if let Some(n) = p.file_name().and_then(|s| s.to_str()) {
+                            p0_names.insert(n.to_string());
+                        }
+                    }
+                }
                 c
             }
             Err(_) => 0,
@@ -274,13 +331,19 @@ impl RLEngine {
         std::env::set_var("ETH2FUZZ_TAG", &self.tag);
         let res = super_run_target(&arm.target_name, fuzzer, cfg);
         let dur = start.elapsed();
-        let after_units = std::fs::read_dir(&hfuzz_input_dir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(before_units);
+        let after_units = std::fs::read_dir(&hfuzz_input_dir)
+            .map(|it| {
+                it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false))
+                    .count()
+            })
+            .unwrap_or(before_units);
         let units_delta = after_units.saturating_sub(before_units);
         // compute seed hashes of this segment batch
         let mut seed_hashes: HashSet<String> = HashSet::new();
         if let Ok(rd) = std::fs::read_dir(&batch_dir) {
             for e in rd.flatten() {
-                let p = e.path(); if p.is_file() {
+                let p = e.path();
+                if p.is_file() {
                     if let Ok(mut f) = std::fs::File::open(&p) {
                         let mut hasher = Sha256::new();
                         let _ = std::io::copy(&mut f, &mut hasher);
@@ -297,14 +360,25 @@ impl RLEngine {
         let hashes_file = hashes_root.join(format!("{}.txt", arm.target_name));
         let mut seen_hashes: HashSet<String> = HashSet::new();
         if let Ok(s) = std::fs::read_to_string(&hashes_file) {
-            for line in s.lines() { seen_hashes.insert(line.trim().to_string()); }
+            for line in s.lines() {
+                seen_hashes.insert(line.trim().to_string());
+            }
         }
         let mut newly_seen: Vec<(String, std::path::PathBuf)> = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&hfuzz_input_dir) {
             for e in rd.flatten() {
-                let p = e.path(); if !p.is_file() { continue; }
-                let is_new_name = p.file_name().and_then(|s| s.to_str()).map(|n| !p0_names.contains(n)).unwrap_or(false);
-                if !is_new_name { continue; }
+                let p = e.path();
+                if !p.is_file() {
+                    continue;
+                }
+                let is_new_name = p
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|n| !p0_names.contains(n))
+                    .unwrap_or(false);
+                if !is_new_name {
+                    continue;
+                }
                 if let Ok(mut f) = std::fs::File::open(&p) {
                     let mut hasher = Sha256::new();
                     let _ = std::io::copy(&mut f, &mut hasher);
@@ -319,47 +393,115 @@ impl RLEngine {
         if !newly_seen.is_empty() {
             std::fs::create_dir_all(&hashes_root).ok();
             let mut buf = String::new();
-            for (h, _) in newly_seen.iter() { buf.push_str(h); buf.push('\n'); }
-            let _ = std::fs::OpenOptions::new().create(true).append(true).open(&hashes_file).and_then(|mut f| std::io::Write::write_all(&mut f, buf.as_bytes()));
+            for (h, _) in newly_seen.iter() {
+                buf.push_str(h);
+                buf.push('\n');
+            }
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&hashes_file)
+                .and_then(|mut f| std::io::Write::write_all(&mut f, buf.as_bytes()));
         }
 
         // LibFuzzer merge to determine samples with global coverage contribution
         let mut mutated_new_cov = 0usize;
         if !newly_seen.is_empty() {
             let logs_root = self.logs_root()?;
-            let global_corpus = logs_root.join("rl").join("libfuzzer_corpus").join(&arm.target_name);
+            let global_corpus = logs_root
+                .join("rl")
+                .join("libfuzzer_corpus")
+                .join(&arm.target_name);
             std::fs::create_dir_all(&global_corpus).ok();
-            let merge_newdir = logs_root.join("rl").join("libfuzzer_merge").join(format!("seg_{}", self.seg_index)).join(&arm.target_name).join("new");
+            let merge_newdir = logs_root
+                .join("rl")
+                .join("libfuzzer_merge")
+                .join(format!("seg_{}", self.seg_index))
+                .join(&arm.target_name)
+                .join("new");
             std::fs::create_dir_all(&merge_newdir).ok();
             // copy newly seen files into newdir
             for (_, p) in newly_seen.iter() {
-                if let Some(fname) = p.file_name() { let _ = std::fs::copy(&p, merge_newdir.join(fname)); }
+                if let Some(fname) = p.file_name() {
+                    let _ = std::fs::copy(&p, merge_newdir.join(fname));
+                }
             }
             // snapshot hashes before
             let mut before_hashes: HashSet<String> = HashSet::new();
             if let Ok(rd) = std::fs::read_dir(&global_corpus) {
-                for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); before_hashes.insert(format!("{:x}", hasher.finalize())); } } }
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_file() {
+                        if let Ok(mut f) = std::fs::File::open(&p) {
+                            let mut hasher = Sha256::new();
+                            let _ = std::io::copy(&mut f, &mut hasher);
+                            before_hashes.insert(format!("{:x}", hasher.finalize()));
+                        }
+                    }
+                }
             }
             // run cargo fuzz with -merge=1 -runs=0
+            let fuzz_dir = workspace_dir()?.join("libfuzzer").join("fuzz");
+            let merge_status = std::process::Command::new("cargo")
+                .args(&["+nightly", "fuzz", "run", &arm.target_name])
+                .arg("--")
+                .args(&["-merge=1", "-runs=0"])
+                .arg(global_corpus.to_string_lossy().to_string())
+                .arg(merge_newdir.to_string_lossy().to_string())
+                .env("ETH2FUZZ_BEACONSTATE", state_dir()?.display().to_string())
+                .current_dir(&fuzz_dir)
+                .status();
+            if let Ok(st) = merge_status {
+                let _ = st;
+            }
+            // snapshot hashes after and count how many from newly_seen got included
+            let mut after_hashes: HashSet<String> = HashSet::new();
+            if let Ok(rd) = std::fs::read_dir(&global_corpus) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_file() {
+                        if let Ok(mut f) = std::fs::File::open(&p) {
+                            let mut hasher = Sha256::new();
+                            let _ = std::io::copy(&mut f, &mut hasher);
+                            after_hashes.insert(format!("{:x}", hasher.finalize()));
+                        }
+                    }
+                }
+            }
+            for (h, _) in newly_seen.iter() {
+                if !before_hashes.contains(h) && after_hashes.contains(h) {
+                    mutated_new_cov += 1;
+                }
+            }
+        }
+        // Fallback: if no newly_seen (honggfuzz didn't persist inputs), run merge against per-segment input dir
+        if mutated_new_cov == 0 {
+            let logs_root = self.logs_root()?;
+            let global_corpus = logs_root.join("rl").join("libfuzzer_corpus").join(&arm.target_name);
+            std::fs::create_dir_all(&global_corpus).ok();
+            // snapshot before
+            let mut before_hashes: HashSet<String> = HashSet::new();
+            if let Ok(rd) = std::fs::read_dir(&global_corpus) {
+                for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); before_hashes.insert(format!("{:x}", hasher.finalize())); } } }
+            }
+            // run merge with seg_input_dir as newdir
             let fuzz_dir = workspace_dir()?.join("libfuzzer").join("fuzz");
             let merge_status = std::process::Command::new("cargo")
                 .args(&["+nightly","fuzz","run", &arm.target_name])
                 .arg("--")
                 .args(&["-merge=1","-runs=0"])
                 .arg(global_corpus.to_string_lossy().to_string())
-                .arg(merge_newdir.to_string_lossy().to_string())
+                .arg(seg_input_dir.to_string_lossy().to_string())
                 .env("ETH2FUZZ_BEACONSTATE", state_dir()?.display().to_string())
                 .current_dir(&fuzz_dir)
                 .status();
             if let Ok(st) = merge_status { let _ = st; }
-            // snapshot hashes after and count how many from newly_seen got included
             let mut after_hashes: HashSet<String> = HashSet::new();
             if let Ok(rd) = std::fs::read_dir(&global_corpus) {
                 for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); after_hashes.insert(format!("{:x}", hasher.finalize())); } } }
             }
-            for (h, _) in newly_seen.iter() {
-                if !before_hashes.contains(h) && after_hashes.contains(h) { mutated_new_cov += 1; }
-            }
+            // count how many hashes were newly included
+            for h in after_hashes.iter() { if !before_hashes.contains(h) { mutated_new_cov += 1; } }
         }
 
         // Collect metrics for reward shaping and next-state features
@@ -381,55 +523,130 @@ impl RLEngine {
         let time_bonus = (dur.as_secs_f64() / segment.max(1) as f64).min(1.0) * 0.2;
         // Dense rewards from metrics deltas
         let mut dense = 0.0;
-        if deltas.head_switch { dense += 0.05; }
-        if deltas.finalized_advanced { dense += 0.2; }
-        if deltas.reorg_increased { dense += 0.2; }
+        if deltas.head_switch {
+            dense += 0.05;
+        }
+        if deltas.finalized_advanced {
+            dense += 0.2;
+        }
+        if deltas.reorg_increased {
+            dense += 0.2;
+        }
         // Reward prefers global-contributing samples; fallback to mutated_new for some density
-        let units_bonus = if mutated_new_cov > 0 { (mutated_new_cov as f64 * 0.05).min(1.0) } else { (mutated_new as f64 * 0.02).min(0.5) };
+        let units_bonus = if mutated_new_cov > 0 {
+            (mutated_new_cov as f64 * 0.05).min(1.0)
+        } else {
+            (mutated_new as f64 * 0.02).min(0.5)
+        };
 
         // Prune: merge hfuzz inputs with corpora and write to run outputs
         let kept_dir = if let Some(paths) = &self.run_paths {
             let out_root = paths.outputs_root.join("corpora_pruned");
             std::fs::create_dir_all(&out_root)?;
-            let kept = merge_hfuzz_and_corpora_then_prune_into(&ws, &arm.target_name, &corpora_label, 256, &out_root)?;
+            let kept = merge_hfuzz_and_corpora_then_prune_into(
+                &ws,
+                &arm.target_name,
+                &corpora_label,
+                256,
+                &out_root,
+            )?;
             Some(kept)
         } else {
             None
         };
 
         // Try to parse coverage percent from log
-        let log_path = self.logs_root()?.join("rl").join("hfuzz").join("logs").join(format!("{}.log", arm.target_name));
+        let log_path = self
+            .logs_root()?
+            .join("rl")
+            .join("hfuzz")
+            .join("logs")
+            .join(format!("{}.log", arm.target_name));
         let mut cov_pct: Option<f64> = None;
         if let Ok(s) = std::fs::read_to_string(&log_path) {
-            if let Some(line) = s.lines().rev().find(|l| l.contains("branch_coverage_percent")) {
+            if let Some(line) = s
+                .lines()
+                .rev()
+                .find(|l| l.contains("branch_coverage_percent"))
+            {
                 let re = Regex::new(r"branch_coverage_percent:\s*([0-9]+)").ok();
-                if let Some(r) = re { if let Some(cap) = r.captures(line) { if let Some(m) = cap.get(1) { cov_pct = m.as_str().parse::<f64>().ok(); } } }
+                if let Some(r) = re {
+                    if let Some(cap) = r.captures(line) {
+                        if let Some(m) = cap.get(1) {
+                            cov_pct = m.as_str().parse::<f64>().ok();
+                        }
+                    }
+                }
             }
         }
         let mut cov_increase = false;
-        if let Some(cp) = cov_pct { if cp > self.best_cov_pct { self.best_cov_pct = cp; cov_increase = true; } }
+        if let Some(cp) = cov_pct {
+            if cp > self.best_cov_pct {
+                self.best_cov_pct = cp;
+                cov_increase = true;
+            }
+        }
 
         // Mirror new inputs under logs tree for reproducibility (best-effort)
-        let mirror_dir = self.logs_root()?.join("rl").join("hfuzz").join("input").join(&arm.target_name);
+        let mirror_dir = self
+            .logs_root()?
+            .join("rl")
+            .join("hfuzz")
+            .join("input")
+            .join(&arm.target_name);
         std::fs::create_dir_all(&mirror_dir).ok();
         if let Ok(rd) = std::fs::read_dir(&hfuzz_input_dir) {
             for e in rd.flatten() {
-                let p = e.path(); if p.is_file() {
+                let p = e.path();
+                if p.is_file() {
                     let dst = mirror_dir.join(p.file_name().unwrap());
-                    if !dst.exists() { let _ = std::fs::copy(&p, &dst); }
+                    if !dst.exists() {
+                        let _ = std::fs::copy(&p, &dst);
+                    }
                 }
             }
         }
 
         // Update run stats
         if let (Some(paths), Some(st)) = (&self.run_paths, self.run_stats.as_mut()) {
-            let batch_count = std::fs::read_dir(&batch_dir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(0);
-            st.segments.push(SegmentRecord { index: self.seg_index, target: arm.target_name.clone(), bin: arm.bin_label.clone(), batch_count, reward: base + time_bonus + dense + units_bonus, branch_cov_pct: cov_pct, hfuzz_units_delta: Some(units_delta), mutated_new: Some(mutated_new), mutated_new_cov: Some(mutated_new_cov) });
+            let batch_count = std::fs::read_dir(&batch_dir)
+                .map(|it| {
+                    it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false))
+                        .count()
+                })
+                .unwrap_or(0);
+            st.segments.push(SegmentRecord {
+                index: self.seg_index,
+                target: arm.target_name.clone(),
+                bin: arm.bin_label.clone(),
+                batch_count,
+                reward: base + time_bonus + dense + units_bonus,
+                branch_cov_pct: cov_pct,
+                hfuzz_units_delta: Some(units_delta),
+                mutated_new: Some(mutated_new),
+                mutated_new_cov: Some(mutated_new_cov),
+            });
             if let Some(outdir) = kept_dir {
-                let kept_count = std::fs::read_dir(&outdir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(0);
+                let kept_count = std::fs::read_dir(&outdir)
+                    .map(|it| {
+                        it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false))
+                            .count()
+                    })
+                    .unwrap_or(0);
                 // merged count = batch + prior corpus count (approx)
-                let prior = std::fs::read_dir(&source_dir).map(|it| it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false)).count()).unwrap_or(0);
-                st.prunes.push(PruneRecord { target: arm.target_name.clone(), corpora_label: corpora_label.clone(), merged_count: prior + batch_count, kept_count, out_dir: outdir.to_string_lossy().to_string() });
+                let prior = std::fs::read_dir(&source_dir)
+                    .map(|it| {
+                        it.filter(|e| e.as_ref().ok().map(|x| x.path().is_file()).unwrap_or(false))
+                            .count()
+                    })
+                    .unwrap_or(0);
+                st.prunes.push(PruneRecord {
+                    target: arm.target_name.clone(),
+                    corpora_label: corpora_label.clone(),
+                    merged_count: prior + batch_count,
+                    kept_count,
+                    out_dir: outdir.to_string_lossy().to_string(),
+                });
             }
             store_stats(paths, st)?;
             self.seg_index += 1;
@@ -459,7 +676,11 @@ impl RLEngine {
                 (idx, xs, probs)
             } else {
                 let idx = self.select_arm_ucb1();
-                (idx, self.build_features_for_all_arms(), vec![1.0 / self.arms.len() as f64; self.arms.len()])
+                (
+                    idx,
+                    self.build_features_for_all_arms(),
+                    vec![1.0 / self.arms.len() as f64; self.arms.len()],
+                )
             };
             let arm = self.arms[idx].clone();
             let reward = self.run_one_segment(&arm, fuzzer, segment_seconds, threads)?;
@@ -467,19 +688,34 @@ impl RLEngine {
 
             if self.cfg.mode.to_lowercase().contains("ppo") {
                 // push transition and update immediately (small batch) to avoid long waits
-                self.buffer.push(Transition { xs, old_probs, chosen: idx, reward });
-                let out_dir_for_policy = if self.cfg.save_policy { Some(self.logs_root()?.join("rl").join("rl_output")) } else { None };
+                self.buffer.push(Transition {
+                    xs,
+                    old_probs,
+                    chosen: idx,
+                    reward,
+                });
+                let out_dir_for_policy = if self.cfg.save_policy {
+                    Some(self.logs_root()?.join("rl").join("rl_output"))
+                } else {
+                    None
+                };
                 if let Some(pol) = self.ppo.as_mut() {
                     let _ = pol.update_from_transitions(&self.buffer);
                     if let Some(out) = out_dir_for_policy {
                         std::fs::create_dir_all(&out)?;
-                        let path = if let Some(ref p) = self.cfg.policy_path { std::path::PathBuf::from(p) } else { out.join("ppo_policy.json") };
+                        let path = if let Some(ref p) = self.cfg.policy_path {
+                            std::path::PathBuf::from(p)
+                        } else {
+                            out.join("ppo_policy.json")
+                        };
                         let v = pol.to_json();
                         let s = serde_json::to_string_pretty(&v)?;
                         let _ = std::fs::write(path, s);
                     }
                     // keep last few transitions
-                    if self.buffer.len() > 8 { self.buffer.drain(0..self.buffer.len()-8); }
+                    if self.buffer.len() > 8 {
+                        self.buffer.drain(0..self.buffer.len() - 8);
+                    }
                 }
             }
             remaining -= segment_seconds;
@@ -575,20 +811,41 @@ impl RLEngine {
         let mut off = 0usize;
         // kind one-hot
         let kind = self.corpora_kind_index(&arm.target_name);
-        if kind < 10 { v[off + kind] = 1.0; }
+        if kind < 10 {
+            v[off + kind] = 1.0;
+        }
         off += 10;
         // bin one-hot: small, medium, large, none
-        let bin_idx = match arm.bin_label.as_deref() { Some("small") => 0, Some("medium") => 1, Some("large") => 2, _ => 3 };
-        v[off + bin_idx] = 1.0; off += 4;
+        let bin_idx = match arm.bin_label.as_deref() {
+            Some("small") => 0,
+            Some("medium") => 1,
+            Some("large") => 2,
+            _ => 3,
+        };
+        v[off + bin_idx] = 1.0;
+        off += 4;
         // pulls (log scaled), mean reward, seg_norm, threads_norm
         let st = self.stats.get(arm).cloned().unwrap_or_default();
-        let pulls = (st.pulls as f64 + 1.0).ln() / 5.0; v[off] = pulls; off += 1;
-        let mean = if st.pulls > 0 { st.reward_sum / st.pulls as f64 } else { 0.0 }; v[off] = mean; off += 1;
+        let pulls = (st.pulls as f64 + 1.0).ln() / 5.0;
+        v[off] = pulls;
+        off += 1;
+        let mean = if st.pulls > 0 {
+            st.reward_sum / st.pulls as f64
+        } else {
+            0.0
+        };
+        v[off] = mean;
+        off += 1;
         // default norms
-        v[off] = 1.0; off += 1; // seg_norm placeholder (not wired)
-        v[off] = 1.0; off += 1; // threads_norm placeholder (not wired)
-        // append 12-d metrics features (global context)
-        for val in self.last_features12.iter() { v[off] = *val; off += 1; }
+        v[off] = 1.0;
+        off += 1; // seg_norm placeholder (not wired)
+        v[off] = 1.0;
+        off += 1; // threads_norm placeholder (not wired)
+                  // append 12-d metrics features (global context)
+        for val in self.last_features12.iter() {
+            v[off] = *val;
+            off += 1;
+        }
         v
     }
 
@@ -627,7 +884,9 @@ impl RLEngine {
         let is_block_header = kind_idx == 3;
         let mut w = 1.0;
         if near_boundary || head_switch || reorg_bucket > 0.5 {
-            if is_attestation || is_block_header { w *= 1.2; }
+            if is_attestation || is_block_header {
+                w *= 1.2;
+            }
         }
         w
     }

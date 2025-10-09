@@ -1,11 +1,11 @@
 use failure::{bail, Error};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 #[cfg(unix)]
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
-use sha2::{Digest, Sha256};
 
 // Create size-based bins for a corpus directory by making symlink views.
 // Returns a map from bin label -> directory path.
@@ -24,10 +24,7 @@ pub fn ensure_size_bins(
         }
     }
     if entries.is_empty() {
-        bail!(format!(
-            "no corpus files found in {}",
-            corpus_dir.display()
-        ));
+        bail!(format!("no corpus files found in {}", corpus_dir.display()));
     }
     entries.sort_by_key(|(_, sz)| *sz);
     let n = entries.len();
@@ -60,10 +57,7 @@ pub fn ensure_size_bins(
         } else {
             &large_dir
         };
-        let file_name = p
-            .file_name()
-            .map(|s| s.to_owned())
-            .unwrap_or_default();
+        let file_name = p.file_name().map(|s| s.to_owned()).unwrap_or_default();
         let dest = dest_dir.join(file_name);
         // Create symlink; if fails on non-unix, fall back to copy
         #[cfg(unix)]
@@ -96,18 +90,24 @@ fn clear_dir_symlinks(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn sample_batch(
-    corpus_src: &Path,
-    batch_out: &Path,
-    max_files: usize,
-) -> Result<usize, Error> {
+pub fn sample_batch(corpus_src: &Path, batch_out: &Path, max_files: usize) -> Result<usize, Error> {
     fs::create_dir_all(batch_out)?;
     let mut entries: Vec<PathBuf> = Vec::new();
-    for e in fs::read_dir(corpus_src)? { let p = e?.path(); if p.is_file() { entries.push(p); } }
+    for e in fs::read_dir(corpus_src)? {
+        let p = e?.path();
+        if p.is_file() {
+            entries.push(p);
+        }
+    }
     // stratify by size terciles if possible
     let mut sized: Vec<(PathBuf, u64)> = Vec::new();
-    for p in entries { let sz = p.metadata()?.len(); sized.push((p, sz)); }
-    if sized.is_empty() { return Ok(0); }
+    for p in entries {
+        let sz = p.metadata()?.len();
+        sized.push((p, sz));
+    }
+    if sized.is_empty() {
+        return Ok(0);
+    }
     sized.sort_by_key(|(_, sz)| *sz);
     let n = sized.len();
     let idx33 = (n as f64 * 0.33).floor() as usize;
@@ -116,20 +116,41 @@ pub fn sample_batch(
     let per_bin = std::cmp::max(1, max_files / 3);
     // helper to push from a slice evenly spaced
     let mut push_even = |slice: &[(PathBuf, u64)]| {
-        if slice.is_empty() { return; }
+        if slice.is_empty() {
+            return;
+        }
         let step = std::cmp::max(1, slice.len() / per_bin);
         let mut i = 0usize;
-        while i < slice.len() && picks.len() < max_files { picks.push(slice[i].0.clone()); i += step; }
+        while i < slice.len() && picks.len() < max_files {
+            picks.push(slice[i].0.clone());
+            i += step;
+        }
     };
-    push_even(&sized[..=idx33.min(n-1)]);
-    if idx66 > idx33 { push_even(&sized[idx33+1..=idx66.min(n-1)]); }
-    if idx66+1 < n { push_even(&sized[idx66+1..]); }
+    push_even(&sized[..=idx33.min(n - 1)]);
+    if idx66 > idx33 {
+        push_even(&sized[idx33 + 1..=idx66.min(n - 1)]);
+    }
+    if idx66 + 1 < n {
+        push_even(&sized[idx66 + 1..]);
+    }
     // materialize as symlinks or copies
     let mut count = 0usize;
-    for p in picks.into_iter() { let name = p.file_name().unwrap().to_owned(); let dest = batch_out.join(name); 
-        #[cfg(unix)] { if unix_fs::symlink(&p, &dest).is_ok() { count += 1; continue; } }
-        if fs::copy(&p, &dest).is_ok() { count += 1; }
-        if count >= max_files { break; }
+    for p in picks.into_iter() {
+        let name = p.file_name().unwrap().to_owned();
+        let dest = batch_out.join(name);
+        #[cfg(unix)]
+        {
+            if unix_fs::symlink(&p, &dest).is_ok() {
+                count += 1;
+                continue;
+            }
+        }
+        if fs::copy(&p, &dest).is_ok() {
+            count += 1;
+        }
+        if count >= max_files {
+            break;
+        }
     }
     Ok(count)
 }
@@ -137,7 +158,12 @@ pub fn sample_batch(
 pub fn prune_dir_by_hash_limit(dir: &Path, keep_limit: usize) -> Result<usize, Error> {
     // keep first occurrence per content hash, then cap total by size-diversity
     let mut files: Vec<PathBuf> = Vec::new();
-    for e in fs::read_dir(dir)? { let p = e?.path(); if p.is_file() { files.push(p); } }
+    for e in fs::read_dir(dir)? {
+        let p = e?.path();
+        if p.is_file() {
+            files.push(p);
+        }
+    }
     let mut seen = std::collections::HashSet::new();
     let mut uniq: Vec<(PathBuf, u64)> = Vec::new();
     for p in files.iter() {
@@ -154,15 +180,23 @@ pub fn prune_dir_by_hash_limit(dir: &Path, keep_limit: usize) -> Result<usize, E
     // cap by size diversity buckets
     uniq.sort_by_key(|(_, sz)| *sz);
     let n = uniq.len();
-    if n <= keep_limit { return Ok(n); }
+    if n <= keep_limit {
+        return Ok(n);
+    }
     let step = std::cmp::max(1, n / keep_limit);
     let mut keep_set = std::collections::HashSet::new();
     let mut i = 0usize;
-    while i < n && keep_set.len() < keep_limit { keep_set.insert(uniq[i].0.clone()); i += step; }
+    while i < n && keep_set.len() < keep_limit {
+        keep_set.insert(uniq[i].0.clone());
+        i += step;
+    }
     // remove others
     let mut removed = 0usize;
     for (p, _) in uniq.into_iter() {
-        if !keep_set.contains(&p) { let _ = fs::remove_file(p); removed += 1; }
+        if !keep_set.contains(&p) {
+            let _ = fs::remove_file(p);
+            removed += 1;
+        }
     }
     Ok(keep_limit)
 }
@@ -179,20 +213,24 @@ pub fn merge_hfuzz_and_corpora_then_prune(
         .join("hfuzz_workspace")
         .join(target_name)
         .join("input");
-    let merge_dir = workspace_dir
-        .join("rl_merge")
-        .join(target_name);
+    let merge_dir = workspace_dir.join("rl_merge").join(target_name);
     fs::create_dir_all(&merge_dir)?;
     // copy corpora
     if corpora_src.exists() {
         for e in fs::read_dir(&corpora_src)? {
-            let p = e?.path(); if p.is_file() { let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap())); }
+            let p = e?.path();
+            if p.is_file() {
+                let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap()));
+            }
         }
     }
     // copy hfuzz inputs
     if hfuzz_in.exists() {
         for e in fs::read_dir(&hfuzz_in)? {
-            let p = e?.path(); if p.is_file() { let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap())); }
+            let p = e?.path();
+            if p.is_file() {
+                let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap()));
+            }
         }
     }
     // prune merged dir
@@ -201,9 +239,15 @@ pub fn merge_hfuzz_and_corpora_then_prune(
     let out = workspace_dir.join("corpora_pruned").join(corpora_label);
     fs::create_dir_all(&out)?;
     // clear out then copy
-    for e in fs::read_dir(&out)? { let p = e?.path(); let _ = fs::remove_file(p); }
+    for e in fs::read_dir(&out)? {
+        let p = e?.path();
+        let _ = fs::remove_file(p);
+    }
     for e in fs::read_dir(&merge_dir)? {
-        let p = e?.path(); if p.is_file() { let _ = fs::copy(&p, out.join(p.file_name().unwrap())); }
+        let p = e?.path();
+        if p.is_file() {
+            let _ = fs::copy(&p, out.join(p.file_name().unwrap()));
+        }
     }
     Ok(out)
 }
@@ -221,20 +265,24 @@ pub fn merge_hfuzz_and_corpora_then_prune_into(
         .join("hfuzz_workspace")
         .join(target_name)
         .join("input");
-    let merge_dir = workspace_dir
-        .join("rl_merge")
-        .join(target_name);
+    let merge_dir = workspace_dir.join("rl_merge").join(target_name);
     fs::create_dir_all(&merge_dir)?;
     // copy corpora
     if corpora_src.exists() {
         for e in fs::read_dir(&corpora_src)? {
-            let p = e?.path(); if p.is_file() { let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap())); }
+            let p = e?.path();
+            if p.is_file() {
+                let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap()));
+            }
         }
     }
     // copy hfuzz inputs
     if hfuzz_in.exists() {
         for e in fs::read_dir(&hfuzz_in)? {
-            let p = e?.path(); if p.is_file() { let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap())); }
+            let p = e?.path();
+            if p.is_file() {
+                let _ = fs::copy(&p, merge_dir.join(p.file_name().unwrap()));
+            }
         }
     }
     // prune merged dir
@@ -243,9 +291,15 @@ pub fn merge_hfuzz_and_corpora_then_prune_into(
     let out = out_root.join(corpora_label);
     fs::create_dir_all(&out)?;
     // clear out then copy
-    for e in fs::read_dir(&out)? { let p = e?.path(); let _ = fs::remove_file(p); }
+    for e in fs::read_dir(&out)? {
+        let p = e?.path();
+        let _ = fs::remove_file(p);
+    }
     for e in fs::read_dir(&merge_dir)? {
-        let p = e?.path(); if p.is_file() { let _ = fs::copy(&p, out.join(p.file_name().unwrap())); }
+        let p = e?.path();
+        if p.is_file() {
+            let _ = fs::copy(&p, out.join(p.file_name().unwrap()));
+        }
     }
     Ok(out)
 }

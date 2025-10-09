@@ -17,10 +17,10 @@ pub struct PPOPolicy {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Transition {
-    pub xs: Vec<Vec<f64>>,     // features per arm at decision
-    pub old_probs: Vec<f64>,   // probs per arm before update
-    pub chosen: usize,         // chosen arm index
-    pub reward: f64,           // scalar reward
+    pub xs: Vec<Vec<f64>>,   // features per arm at decision
+    pub old_probs: Vec<f64>, // probs per arm before update
+    pub chosen: usize,       // chosen arm index
+    pub reward: f64,         // scalar reward
 }
 
 impl PPOPolicy {
@@ -55,8 +55,20 @@ impl PPOPolicy {
         }
     }
 
-    fn relu(x: f64) -> f64 { if x > 0.0 { x } else { 0.0 } }
-    fn relu_grad(x: f64) -> f64 { if x > 0.0 { 1.0 } else { 0.0 } }
+    fn relu(x: f64) -> f64 {
+        if x > 0.0 {
+            x
+        } else {
+            0.0
+        }
+    }
+    fn relu_grad(x: f64) -> f64 {
+        if x > 0.0 {
+            1.0
+        } else {
+            0.0
+        }
+    }
 
     // Forward for one feature vector: returns (hidden pre-activation, hidden, logit)
     fn forward_one(&self, x: &[f64]) -> (Vec<f64>, Vec<f64>, f64) {
@@ -70,9 +82,13 @@ impl PPOPolicy {
             z1[h] = s;
         }
         let mut h1 = vec![0.0; self.hidden];
-        for h in 0..self.hidden { h1[h] = Self::relu(z1[h]); }
+        for h in 0..self.hidden {
+            h1[h] = Self::relu(z1[h]);
+        }
         let mut z2 = self.b2;
-        for h in 0..self.hidden { z2 += self.w2[h] * h1[h]; }
+        for h in 0..self.hidden {
+            z2 += self.w2[h] * h1[h];
+        }
         (z1, h1, z2)
     }
 
@@ -94,7 +110,9 @@ impl PPOPolicy {
         let maxv = logits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let exps: Vec<f64> = logits.iter().map(|z| (z - maxv).exp()).collect();
         let sum: f64 = exps.iter().sum();
-        if sum <= 0.0 { return vec![1.0 / logits.len() as f64; logits.len()]; }
+        if sum <= 0.0 {
+            return vec![1.0 / logits.len() as f64; logits.len()];
+        }
         exps.iter().map(|e| e / sum).collect()
     }
 
@@ -105,13 +123,18 @@ impl PPOPolicy {
         let mut best = 0usize;
         let mut bestp = probs[0];
         for i in 1..probs.len() {
-            if probs[i] > bestp { best = i; bestp = probs[i]; }
+            if probs[i] > bestp {
+                best = i;
+                bestp = probs[i];
+            }
         }
         (best, probs)
     }
 
     pub fn update_from_transitions(&mut self, batch: &[Transition]) -> Result<(), Error> {
-        if batch.is_empty() { return Ok(()); }
+        if batch.is_empty() {
+            return Ok(());
+        }
         // Accumulate gradients
         let mut g_w1 = vec![0.0; self.hidden * self.input_dim];
         let mut g_b1 = vec![0.0; self.hidden];
@@ -129,14 +152,19 @@ impl PPOPolicy {
             // PPO clipping: if ratio outside [1-eps, 1+eps], skip update (zero grad)
             if ratio < (1.0 - self.clip_eps) || ratio > (1.0 + self.clip_eps) {
                 // update baseline only
-                self.baseline_ewma = self.baseline_beta * self.baseline_ewma + (1.0 - self.baseline_beta) * tr.reward;
+                self.baseline_ewma = self.baseline_beta * self.baseline_ewma
+                    + (1.0 - self.baseline_beta) * tr.reward;
                 continue;
             }
 
             // dL/dlogits_j = (p_j - 1{j=a}) * (-adv)
             let mut dL_dz: Vec<f64> = Vec::with_capacity(probs.len());
             for (j, &p) in probs.iter().enumerate() {
-                let v = if j == tr.chosen { (p - 1.0) * (-adv) } else { p * (-adv) };
+                let v = if j == tr.chosen {
+                    (p - 1.0) * (-adv)
+                } else {
+                    p * (-adv)
+                };
                 dL_dz.push(v);
             }
 
@@ -148,15 +176,21 @@ impl PPOPolicy {
                 let dz = dL_dz[j];
 
                 // w2, b2 grads
-                for h in 0..self.hidden { g_w2[h] += dz * h1[h]; }
+                for h in 0..self.hidden {
+                    g_w2[h] += dz * h1[h];
+                }
                 g_b2 += dz;
 
                 // backprop to h1
                 let mut dL_dh1 = vec![0.0; self.hidden];
-                for h in 0..self.hidden { dL_dh1[h] = dz * self.w2[h]; }
+                for h in 0..self.hidden {
+                    dL_dh1[h] = dz * self.w2[h];
+                }
                 // relu grad
                 let mut dL_dz1 = vec![0.0; self.hidden];
-                for h in 0..self.hidden { dL_dz1[h] = dL_dh1[h] * Self::relu_grad(z1[h]); }
+                for h in 0..self.hidden {
+                    dL_dz1[h] = dL_dh1[h] * Self::relu_grad(z1[h]);
+                }
                 // w1, b1 grads
                 for h in 0..self.hidden {
                     let base = h * self.input_dim;
@@ -168,14 +202,21 @@ impl PPOPolicy {
             }
 
             // Baseline update
-            self.baseline_ewma = self.baseline_beta * self.baseline_ewma + (1.0 - self.baseline_beta) * tr.reward;
+            self.baseline_ewma =
+                self.baseline_beta * self.baseline_ewma + (1.0 - self.baseline_beta) * tr.reward;
         }
 
         // Apply gradients (SGD)
         let scale = self.lr / (batch.len() as f64);
-        for i in 0..self.w1.len() { self.w1[i] -= scale * g_w1[i]; }
-        for i in 0..self.b1.len() { self.b1[i] -= scale * g_b1[i]; }
-        for i in 0..self.w2.len() { self.w2[i] -= scale * g_w2[i]; }
+        for i in 0..self.w1.len() {
+            self.w1[i] -= scale * g_w1[i];
+        }
+        for i in 0..self.b1.len() {
+            self.b1[i] -= scale * g_b1[i];
+        }
+        for i in 0..self.w2.len() {
+            self.w2[i] -= scale * g_w2[i];
+        }
         self.b2 -= scale * g_b2;
         Ok(())
     }
@@ -198,14 +239,40 @@ impl PPOPolicy {
     pub fn from_json(v: &serde_json::Value) -> Option<Self> {
         let input_dim = v.get("input_dim")?.as_u64()? as usize;
         let hidden = v.get("hidden")?.as_u64()? as usize;
-        let w1 = v.get("w1")?.as_array()?.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>();
-        let b1 = v.get("b1")?.as_array()?.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>();
-        let w2 = v.get("w2")?.as_array()?.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>();
+        let w1 = v
+            .get("w1")?
+            .as_array()?
+            .iter()
+            .filter_map(|x| x.as_f64())
+            .collect::<Vec<_>>();
+        let b1 = v
+            .get("b1")?
+            .as_array()?
+            .iter()
+            .filter_map(|x| x.as_f64())
+            .collect::<Vec<_>>();
+        let w2 = v
+            .get("w2")?
+            .as_array()?
+            .iter()
+            .filter_map(|x| x.as_f64())
+            .collect::<Vec<_>>();
         let b2 = v.get("b2")?.as_f64()?;
         let lr = v.get("lr")?.as_f64()?;
         let clip_eps = v.get("clip_eps")?.as_f64()?;
         let baseline_ewma = v.get("baseline_ewma")?.as_f64()?;
         let baseline_beta = v.get("baseline_beta")?.as_f64()?;
-        Some(Self { input_dim, hidden, w1, b1, w2, b2, lr, clip_eps, baseline_ewma, baseline_beta })
+        Some(Self {
+            input_dim,
+            hidden,
+            w1,
+            b1,
+            w2,
+            b2,
+            lr,
+            clip_eps,
+            baseline_ewma,
+            baseline_beta,
+        })
     }
 }

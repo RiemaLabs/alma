@@ -128,7 +128,13 @@ impl FuzzerHfuzz {
         let cwd = env::current_dir().context("error getting current directory")?;
         let tag = env::var("ETH2FUZZ_TAG").unwrap_or_else(|_| "default".into());
         let mode = env::var("ETH2FUZZ_RUN_MODE").unwrap_or_else(|_| "base".into());
-        let logs_dir = cwd.join("workspace").join("logs").join(tag).join(mode).join("hfuzz").join("logs");
+        let logs_dir = cwd
+            .join("workspace")
+            .join("logs")
+            .join(tag)
+            .join(mode)
+            .join("hfuzz")
+            .join("logs");
         fs::create_dir_all(&logs_dir).ok();
         let log_file = logs_dir.join(format!("{}.log", target.name()));
 
