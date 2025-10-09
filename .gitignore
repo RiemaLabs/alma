@@ -31,3 +31,9 @@ files/tools/*/bin
 .mypy_cache/
 
 RESEARCH/
+eth2fuzz/workspace/rl_runs
+eth2fuzz/workspace/rl_bins
+eth2fuzz/workspace/rl_batch
+eth2fuzz/workspace/rl_merge
+
+**/Cargo.lock

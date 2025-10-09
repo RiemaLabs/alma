@@ -59,8 +59,13 @@ impl FuzzerHfuzz {
             bail!(format!("{} incompatible for this target", self.name));
         }
 
-        // get path to corpora
-        let corpora_dir = corpora_dir()?.join(target.corpora());
+        // get path to corpora, allow override for RL binning
+        let default_corpora_dir = corpora_dir()?.join(target.corpora());
+        let corpora_override = env::var("ETH2FUZZ_CORPORA_OVERRIDE").ok();
+        let corpora_dir = corpora_override
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or(default_corpora_dir);
 
         // copy targets folder into workspace
         // prepare_targets_workspace()?;

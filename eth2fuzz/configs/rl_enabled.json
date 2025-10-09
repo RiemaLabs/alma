@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "mode": "PPO",
+  "exploration_rate": 0.2,
+  "ucb_c": 1.41421356237,
+  "use_bins": true
+}

@@ -53,6 +53,8 @@ help:
 	@echo '    make fuzz-all                                    Build and fuzz all targets for all clients, 1 hr each.'
 	@echo '    make fuzz-[CLIENT]                               Fuzz all targets for CLIENT, 1 hr each.'
 	@echo '                                                     e.g. `make fuzz-lighthouse`'
+	@echo '    make fuzz-[CLIENT]-rl                            RL-enhanced fuzzing for CLIENT (bandit scheduler).'
+	@echo '                                                     e.g. `make fuzz-lighthouse-rl`'
 	@echo '    make or make docker-all                          Build all docker images.'
 	@echo '    make CLIENT                                      Build all docker image for CLIENT.'
 	@echo '                                                     e.g. `make prysm`'
@@ -124,6 +126,12 @@ fuzz-lighthouse: prefetch-lighthouse
 	RUN_DOCKER_FLAGS='$(DOCKER_RUN_FLAGS)' BEACONSTATE_ENV='$(BEACONSTATE_ENV)' \
 	  /bin/sh workspace/tools/run_targets.sh eth2fuzz_lighthouse $(or $(t),3600) $(or $(n),$(CPUS)) "$(WORKSPACE_DIR)"
 
+## RL-enhanced fuzzing of lighthouse using docker (bandit over targets)
+fuzz-lighthouse-rl: prefetch-lighthouse
+	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
+	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_lighthouse rl-fuzz -q lighthouse --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),$(CPUS)) --config configs/rl_enabled.json $$RUN_ID_FLAG
+
 ## Prefetch dependencies into mounted caches to avoid network during fuzz runs
 prefetch-lighthouse: lighthouse prepare-cache
 	# purge stale git cache entries (commit ids change when vendoring lighthouse inside image)
@@ -167,6 +175,12 @@ lodestar:
 fuzz-lodestar: lodestar
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_lodestar continuously -q lodestar -t 3600
 
+## RL-enhanced fuzzing of lodestar
+fuzz-lodestar-rl: lodestar
+	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
+	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_lodestar rl-fuzz -q lodestar --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
+
 ## Nothing to clean with lodestar since there
 ## is not compiled fuzzing targets
 clean-lodestar:
@@ -189,6 +203,12 @@ nimbus:
 ## Fuzz all nimbus targets for 1 hour each
 fuzz-nimbus: nimbus
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_nimbus continuously -q nimbus -t 3600
+
+## RL-enhanced fuzzing of nimbus
+fuzz-nimbus-rl: nimbus
+	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
+	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_nimbus rl-fuzz -q nimbus --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
 
 ## clean compiled fuzzing targets
 clean-nimbus:
@@ -215,6 +235,12 @@ prysm:
 fuzz-prysm: prysm
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_prysm continuously -q prysm -t 3600
 
+## RL-enhanced fuzzing of prysm
+fuzz-prysm-rl: prysm
+	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
+	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_prysm rl-fuzz -q prysm --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
+
 ## clean compiled fuzzing targets
 clean-prysm:
 	# clean gofuzz libfuzzer
@@ -238,6 +264,12 @@ teku:
 ## Fuzz all teku targets for 1 hour each
 fuzz-teku: teku
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_teku continuously -q teku -t 3600
+
+## RL-enhanced fuzzing of teku
+fuzz-teku-rl: teku
+	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
+	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_teku rl-fuzz -q teku --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
 
 ## clean compiled fuzzing targets
 clean-teku:

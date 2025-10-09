@@ -23,6 +23,8 @@ mod utils;
 mod targets;
 // load generic fuzzers stuff
 mod fuzzers;
+// RL module
+mod rl;
 // load javascript fuzzers
 mod js_fuzzers;
 // load Nim fuzzers
@@ -104,6 +106,39 @@ enum Cli {
     /// List all available targets
     #[structopt(name = "list")]
     ListTargets,
+    /// RL-enhanced fuzzing orchestrator
+    #[structopt(name = "rl-fuzz")]
+    RLFuzz {
+        /// Only run target containing this eth2 clients name (e.g. lighthouse)
+        #[structopt(short = "q", long = "filter")]
+        filter: String,
+        /// Which fuzzer to run
+        #[structopt(
+            short = "f",
+            long = "fuzzer",
+            possible_values = &fuzzers::Fuzzer::variants(),
+            case_insensitive = true
+        )]
+        fuzzer: Option<fuzzers::Fuzzer>,
+        /// Total run time (seconds)
+        #[structopt(long = "total", default_value = "3600")]
+        total: i32,
+        /// Segment duration per round (seconds)
+        #[structopt(long = "segment", default_value = "60")]
+        segment: i32,
+        /// Set number of threads (where applicable)
+        #[structopt(short = "n", long = "thread")]
+        thread: Option<i32>,
+        /// Optional RL config JSON path (inside container)
+        #[structopt(long = "config")]
+        config: Option<String>,
+        /// Disable size-based corpus binning
+        #[structopt(long = "disable-bins")]
+        disable_bins: bool,
+        /// Optional run identifier for reproducibility (folder under workspace/rl_runs)
+        #[structopt(long = "run-id")]
+        run_id: Option<String>,
+    },
 }
 
 /// Main function catching errors
@@ -150,6 +185,41 @@ fn run() -> Result<(), Error> {
         // list all targets
         ListTargets => {
             list_targets()?;
+        }
+        // RL-enhanced fuzz orchestrator
+        RLFuzz {
+            filter,
+            fuzzer,
+            total,
+            segment,
+            thread,
+            config,
+            disable_bins,
+            run_id,
+        } => {
+            // Load RL config
+            let mut rl_cfg = if let Some(path) = config {
+                rl::config::RLConfig::from_file(&path).unwrap_or_default()
+            } else {
+                rl::config::RLConfig::default()
+            };
+            if disable_bins {
+                rl_cfg.use_bins = false;
+            }
+            // Seed RNG from env or time
+            let seed: u64 = std::env::var("ETH2FUZZ_RL_SEED")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                });
+            let mut engine = rl::engine::RLEngine::new(rl_cfg, seed);
+            if let Some(id) = run_id { engine.set_run_id(id); }
+            engine.run(&filter, fuzzer, total, segment, thread)?;
         }
         // Fuzz one target
         Run {
