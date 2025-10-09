@@ -344,4 +344,4 @@ reset-locks:
 
 ## Quick coverage compare on single target (lighthouse_attestation)
 cov-attestation: lighthouse
-	/bin/sh workspace/tools/quick_cov_compare.sh eth2fuzz_lighthouse lighthouse_attestation $(or $(T),60) $(or $(RT),60) $(or $(S),10) $(or $(n),2) $(or $(tag),covtest)
+	/bin/sh workspace/tools/quick_cov_compare.sh eth2fuzz_lighthouse lighthouse_attestation $(or $(T),60) $(or $(RT),60) $(or $(S),10) $(or $(n),2) $(or $(tag),covtest) $(or $(fuzzer),honggfuzz)

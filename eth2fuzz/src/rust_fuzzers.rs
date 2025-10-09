@@ -424,7 +424,13 @@ impl FuzzerLibfuzzer {
                 }
         */
         let fuzz_dir = self.work_dir.join("fuzz");
-        let corpus_dir = corpora_dir()?.join(target.corpora());
+        // Determine corpus dir; allow override for experiments (parity with Honggfuzz)
+        let default_corpora_dir = corpora_dir()?.join(target.corpora());
+        let corpora_override = env::var("ETH2FUZZ_CORPORA_OVERRIDE").ok();
+        let corpus_dir = corpora_override
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or(default_corpora_dir);
 
         // sanitizers
         let rust_args = format!(

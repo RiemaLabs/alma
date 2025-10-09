@@ -390,6 +390,25 @@ impl RLEngine {
                 }
             }
         }
+        // If using libFuzzer, new files are written into the per-segment input dir (seg_input_dir).
+        // Fall back to scanning that dir to compute mutated_new for visibility in reports.
+        if mutated_new == 0 && matches!(fuzzer, Some(crate::fuzzers::Fuzzer::Libfuzzer)) {
+            if let Ok(rd) = std::fs::read_dir(&seg_input_dir) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if !p.is_file() { continue; }
+                    if let Ok(mut f) = std::fs::File::open(&p) {
+                        let mut hasher = Sha256::new();
+                        let _ = std::io::copy(&mut f, &mut hasher);
+                        let h = format!("{:x}", hasher.finalize());
+                        if !seed_hashes.contains(&h) && !seen_hashes.contains(&h) {
+                            mutated_new += 1;
+                            newly_seen.push((h.clone(), p.clone()));
+                        }
+                    }
+                }
+            }
+        }
         if !newly_seen.is_empty() {
             std::fs::create_dir_all(&hashes_root).ok();
             let mut buf = String::new();
