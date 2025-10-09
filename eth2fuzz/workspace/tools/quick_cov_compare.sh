@@ -69,7 +69,12 @@ extract_cov() {
 
 log "Workspace: $WORKSPACE_DIR"
 
-# Prefetch dependencies to avoid spending run time building
+# Remove stale lock files that may pin old vendored Lighthouse commits
+rm -f "$WORKSPACE_DIR/libfuzzer/fuzz/Cargo.lock" \
+      "$WORKSPACE_DIR/hfuzz/Cargo.lock" \
+      "$WORKSPACE_DIR/targets/rust/Cargo.lock" 2>/dev/null || true
+
+# Prefetch dependencies to avoid spending run time building and refresh locks
 make -C "$(dirname "$WORKSPACE_DIR")" prefetch-lighthouse >/dev/null 2>&1 || true
 
 # Baseline

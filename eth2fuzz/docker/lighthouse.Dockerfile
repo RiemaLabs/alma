@@ -64,11 +64,11 @@ COPY . .
 # Ensure the vendored lighthouse is a standalone git repo so Cargo can use it as a local git source.
 RUN rm -rf lighthouse/.git \
  && cd lighthouse \
- && git init \
+ && git init -q \
  && git config user.email "local@eth2fuzz" \
  && git config user.name "eth2fuzz" \
  && git add . \
- && git commit -m "vendor lighthouse"
+ && GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" git commit -q -m "vendor lighthouse"
 
 # Build the CLI tool
 RUN make -f eth2fuzz.mk build

@@ -140,9 +140,14 @@ prefetch-lighthouse: lighthouse prepare-cache
 	docker run --rm $(DOCKER_RUN_FLAGS) -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
 	  --entrypoint bash eth2fuzz_lighthouse -lc 'set -e; \
 	  rm -rf /usr/local/rust/git/db/*; \
-	  rm -f /eth2fuzz/workspace/hfuzz/Cargo.lock /eth2fuzz/workspace/targets/rust/Cargo.lock; \
+	  # remove stale locks that pin old git revs of vendored lighthouse \
+	  rm -f /eth2fuzz/workspace/hfuzz/Cargo.lock \
+	        /eth2fuzz/workspace/targets/rust/Cargo.lock \
+	        /eth2fuzz/workspace/libfuzzer/fuzz/Cargo.lock; \
 	  cd /eth2fuzz/workspace/targets/rust && cargo update && cargo fetch; \
-	  cd /eth2fuzz/workspace/hfuzz && cargo update && cargo fetch'
+	  cd /eth2fuzz/workspace/hfuzz && cargo update && cargo fetch; \
+	  # refresh libfuzzer workspace to point at current vendored lighthouse HEAD \
+	  cd /eth2fuzz/workspace/libfuzzer/fuzz && cargo update && cargo fetch'
 
 ## clean compiled fuzzing targets
 clean-lighthouse:
@@ -329,6 +334,13 @@ submodules:
 prepare-cache:
 	@mkdir -p $(HOME)/.cargo-docker/home >/dev/null 2>&1 || true
 	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
+
+## Remove workspace lock files that may pin stale vendored Lighthouse commits
+.PHONY: reset-locks
+reset-locks:
+	rm -f workspace/libfuzzer/fuzz/Cargo.lock \
+	      workspace/hfuzz/Cargo.lock \
+	      workspace/targets/rust/Cargo.lock
 
 ## Quick coverage compare on single target (lighthouse_attestation)
 cov-attestation: lighthouse
