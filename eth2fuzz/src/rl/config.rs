@@ -14,12 +14,19 @@ pub struct RLConfig {
     pub ucb_c: f64,
     #[serde(default = "default_use_bins")] 
     pub use_bins: bool,
+    #[serde(default = "default_save_policy")] 
+    pub save_policy: bool,
+    #[serde(default)]
+    pub policy_path: Option<String>,
+    #[serde(default)]
+    pub load_policy_path: Option<String>,
 }
 
 fn default_mode() -> String { "Bandit".to_string() }
 fn default_exploration() -> f64 { 0.2 }
 fn default_ucb_c() -> f64 { 1.41421356237 }
 fn default_use_bins() -> bool { true }
+fn default_save_policy() -> bool { true }
 
 impl Default for RLConfig {
     fn default() -> Self {
@@ -29,6 +36,9 @@ impl Default for RLConfig {
             exploration_rate: default_exploration(),
             ucb_c: default_ucb_c(),
             use_bins: default_use_bins(),
+            save_policy: default_save_policy(),
+            policy_path: None,
+            load_policy_path: None,
         }
     }
 }
@@ -40,4 +50,3 @@ impl RLConfig {
         Ok(cfg)
     }
 }
-

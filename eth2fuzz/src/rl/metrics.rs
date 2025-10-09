@@ -12,6 +12,10 @@ pub struct BeaconSnapshot {
 #[derive(Default, Clone, Debug)]
 pub struct PromSnapshot {
     pub reorg_count: Option<u64>,
+    pub participation_rate: Option<f64>,
+    pub inactivity_p99: Option<f64>,
+    pub pending_slashings: Option<u64>,
+    pub is_syncing: Option<bool>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -99,6 +103,10 @@ pub fn collect_prom(endpoint: &str) -> Result<PromSnapshot, Error> {
         .call()? 
         .into_string()?;
     let mut reorg_count: Option<u64> = None;
+    let mut participation_rate: Option<f64> = None;
+    let mut inactivity_p99: Option<f64> = None;
+    let mut pending_slashings: Option<u64> = None;
+    let mut is_syncing: Option<bool> = None;
     for line in resp.lines() {
         if line.starts_with('#') { continue; }
         if line.contains("reorg_count") || line.contains("fork_choice_reorg") {
@@ -108,7 +116,39 @@ pub fn collect_prom(endpoint: &str) -> Result<PromSnapshot, Error> {
             }
         }
     }
-    Ok(PromSnapshot { reorg_count })
+    // second pass for other metrics
+    for line in resp.lines() {
+        if line.starts_with('#') { continue; }
+        let lower = line.to_lowercase();
+        // participation rate as ratio 0..1
+        if participation_rate.is_none() && lower.contains("participation") && !lower.contains("help") {
+            if let Some(tok) = line.split_whitespace().last() {
+                if let Ok(mut v) = tok.parse::<f64>() {
+                    if v > 1.0 { v = (v / 100.0).min(1.0); }
+                    if v >= 0.0 && v <= 1.0 { participation_rate = Some(v); }
+                }
+            }
+        }
+        // inactivity score p99
+        if inactivity_p99.is_none() && lower.contains("inactivity") && lower.contains("p99") {
+            if let Some(tok) = line.split_whitespace().last() {
+                if let Ok(v) = tok.parse::<f64>() { inactivity_p99 = Some(v); }
+            }
+        }
+        // pending slashings
+        if pending_slashings.is_none() && (lower.contains("pending_slashings") || lower.contains("attester_slashings")) {
+            if let Some(tok) = line.split_whitespace().last() {
+                if let Ok(v) = tok.parse::<u64>() { pending_slashings = Some(v); }
+            }
+        }
+        // sync state
+        if is_syncing.is_none() && lower.contains("sync") && (lower.contains("is_syncing") || lower.ends_with("syncing")) {
+            if let Some(tok) = line.split_whitespace().last() {
+                if let Ok(v) = tok.parse::<u64>() { is_syncing = Some(v != 0); }
+            }
+        }
+    }
+    Ok(PromSnapshot { reorg_count, participation_rate, inactivity_p99, pending_slashings, is_syncing })
 }
 
 pub fn compute_features(prev: &MetricsCtx, cur: &MetricsCtx) -> RLFeatures12 {
@@ -122,6 +162,16 @@ pub fn compute_features(prev: &MetricsCtx, cur: &MetricsCtx) -> RLFeatures12 {
         if b > a { reorg_delta = b - a; }
     }
     f.reorg_depth_bucket = if reorg_delta == 0 { 0.0 } else if reorg_delta <= 2 { 0.5 } else { 1.0 };
+    // participation bucket
+    if let Some(p) = cur.prom.participation_rate { f.participation_rate_bucket = (p.max(0.0).min(1.0) * 1.0) as f64; }
+    // inactivity p99 bucket (heuristic scale)
+    if let Some(ix) = cur.prom.inactivity_p99 { f.inactivity_score_p99_bucket = ((ix / 64.0).min(1.0)) as f64; }
+    // pending slashings bucket: log scale normalize
+    if let Some(ps) = cur.prom.pending_slashings { f.num_pending_slashings_bucket = ((ps as f64 + 1.0).ln() / 6.0).min(1.0); }
+    // unrealized finalized flag: justified - finalized >= 1
+    if let (Some(j), Some(fin)) = (cur.beacon.justified_epoch, cur.beacon.finalized_epoch) { if j > fin { f.unrealized_finalized_flag = 1.0; } }
+    // sync state flag
+    if let Some(true) = cur.prom.is_syncing { f.client_sync_state_flag = 1.0; }
     // head switch flag
     if let (Some(pr), Some(cr)) = (&prev.beacon.head_root, &cur.beacon.head_root) { if pr != cr { f.head_switch_flag = 1.0; } }
     // finalized advanced flag

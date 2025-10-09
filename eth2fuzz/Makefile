@@ -70,6 +70,8 @@ help:
 	@echo ''
 	@echo '    make fmt                                         Run Rust fmt.'
 	@echo ''
+	@echo 'Quick coverage compare (single target):'
+	@echo '    make cov-attestation                              Baseline vs PPO on lighthouse_attestation.'
 	@echo 'Crash helpers:'
 	@echo '    make crashes-lighthouse                           List honggfuzz crash files for lighthouse.'
 	@echo ''
@@ -123,14 +125,14 @@ lighthouse: submodules
 fuzz-lighthouse: prefetch-lighthouse
 	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
 	@mkdir -p $(WORKSPACE_DIR)/hfuzz/logs >/dev/null 2>&1 || true
-	RUN_DOCKER_FLAGS='$(DOCKER_RUN_FLAGS)' BEACONSTATE_ENV='$(BEACONSTATE_ENV)' \
+	RUN_DOCKER_FLAGS='$(DOCKER_RUN_FLAGS)' BEACONSTATE_ENV='$(BEACONSTATE_ENV)' ETH2FUZZ_TAG='$(or $(tag),default)' \
 	  /bin/sh workspace/tools/run_targets.sh eth2fuzz_lighthouse $(or $(t),3600) $(or $(n),$(CPUS)) "$(WORKSPACE_DIR)"
 
 ## RL-enhanced fuzzing of lighthouse using docker (bandit over targets)
 fuzz-lighthouse-rl: prefetch-lighthouse
 	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
-	  $(DOCKER_RUN_FLAGS) eth2fuzz_lighthouse rl-fuzz -q lighthouse --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),$(CPUS)) --config configs/rl_enabled.json $$RUN_ID_FLAG
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_lighthouse rl-fuzz -q lighthouse --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),$(CPUS)) --config configs/rl_enabled.json --tag $(or $(tag),default) $$RUN_ID_FLAG
 
 ## Prefetch dependencies into mounted caches to avoid network during fuzz runs
 prefetch-lighthouse: lighthouse prepare-cache
@@ -173,13 +175,13 @@ lodestar:
 
 ## Fuzz all lodestar targets for 1 hour each
 fuzz-lodestar: lodestar
-	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_lodestar continuously -q lodestar -t 3600
+	docker run -e ETH2FUZZ_TAG=$(or $(tag),default) -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_lodestar continuously -q lodestar -t 3600
 
 ## RL-enhanced fuzzing of lodestar
 fuzz-lodestar-rl: lodestar
 	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
-	  $(DOCKER_RUN_FLAGS) eth2fuzz_lodestar rl-fuzz -q lodestar --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_lodestar rl-fuzz -q lodestar --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json --tag $(or $(tag),default) $$RUN_ID_FLAG
 
 ## Nothing to clean with lodestar since there
 ## is not compiled fuzzing targets
@@ -202,13 +204,13 @@ nimbus:
 
 ## Fuzz all nimbus targets for 1 hour each
 fuzz-nimbus: nimbus
-	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_nimbus continuously -q nimbus -t 3600
+	docker run -e ETH2FUZZ_TAG=$(or $(tag),default) -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_nimbus continuously -q nimbus -t 3600
 
 ## RL-enhanced fuzzing of nimbus
 fuzz-nimbus-rl: nimbus
 	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
-	  $(DOCKER_RUN_FLAGS) eth2fuzz_nimbus rl-fuzz -q nimbus --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_nimbus rl-fuzz -q nimbus --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json --tag $(or $(tag),default) $$RUN_ID_FLAG
 
 ## clean compiled fuzzing targets
 clean-nimbus:
@@ -233,13 +235,13 @@ prysm:
 
 ## Fuzz all prysm targets for 1 hour each
 fuzz-prysm: prysm
-	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_prysm continuously -q prysm -t 3600
+	docker run -e ETH2FUZZ_TAG=$(or $(tag),default) -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_prysm continuously -q prysm -t 3600
 
 ## RL-enhanced fuzzing of prysm
 fuzz-prysm-rl: prysm
 	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
-	  $(DOCKER_RUN_FLAGS) eth2fuzz_prysm rl-fuzz -q prysm --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_prysm rl-fuzz -q prysm --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json --tag $(or $(tag),default) $$RUN_ID_FLAG
 
 ## clean compiled fuzzing targets
 clean-prysm:
@@ -263,13 +265,13 @@ teku:
 
 ## Fuzz all teku targets for 1 hour each
 fuzz-teku: teku
-	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_teku continuously -q teku -t 3600
+	docker run -e ETH2FUZZ_TAG=$(or $(tag),default) -v $(WORKSPACE_DIR):/eth2fuzz/workspace eth2fuzz_teku continuously -q teku -t 3600
 
 ## RL-enhanced fuzzing of teku
 fuzz-teku-rl: teku
 	RUN_ID_FLAG="$(if $(run_id),--run-id $(run_id),)"; \
 	docker run -v $(WORKSPACE_DIR):/eth2fuzz/workspace \
-	  $(DOCKER_RUN_FLAGS) eth2fuzz_teku rl-fuzz -q teku --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json $$RUN_ID_FLAG
+	  $(DOCKER_RUN_FLAGS) eth2fuzz_teku rl-fuzz -q teku --total $(or $(T),3600) --segment $(or $(S),60) -n $(or $(n),1) --config configs/rl_enabled.json --tag $(or $(tag),default) $$RUN_ID_FLAG
 
 ## clean compiled fuzzing targets
 clean-teku:
@@ -327,3 +329,7 @@ submodules:
 prepare-cache:
 	@mkdir -p $(HOME)/.cargo-docker/home >/dev/null 2>&1 || true
 	@mkdir -p $(WORKSPACE_DIR)/hfuzz/target >/dev/null 2>&1 || true
+
+## Quick coverage compare on single target (lighthouse_attestation)
+cov-attestation: lighthouse
+	/bin/sh workspace/tools/quick_cov_compare.sh eth2fuzz_lighthouse lighthouse_attestation $(or $(T),60) $(or $(RT),60) $(or $(S),10) $(or $(n),2) $(or $(tag),covtest)

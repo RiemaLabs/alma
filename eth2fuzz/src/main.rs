@@ -106,6 +106,12 @@ enum Cli {
     /// List all available targets
     #[structopt(name = "list")]
     ListTargets,
+    /// Print corpora label for a given target
+    #[structopt(name = "corpora-label")]
+    CorporaLabel {
+        /// Which target
+        target: String,
+    },
     /// RL-enhanced fuzzing orchestrator
     #[structopt(name = "rl-fuzz")]
     RLFuzz {
@@ -135,6 +141,9 @@ enum Cli {
         /// Disable size-based corpus binning
         #[structopt(long = "disable-bins")]
         disable_bins: bool,
+        /// Optional experiment tag to unify logs under workspace/logs/<tag>
+        #[structopt(long = "tag")]
+        tag: Option<String>,
         /// Optional run identifier for reproducibility (folder under workspace/rl_runs)
         #[structopt(long = "run-id")]
         run_id: Option<String>,
@@ -186,6 +195,14 @@ fn run() -> Result<(), Error> {
         ListTargets => {
             list_targets()?;
         }
+        // corpora label for a target
+        CorporaLabel { target } => {
+            let t = match targets::Targets::iter().find(|x| x.name() == target) {
+                None => bail!("Don't know target `{}`.", target),
+                Some(t) => t,
+            };
+            println!("{}", t.corpora());
+        }
         // RL-enhanced fuzz orchestrator
         RLFuzz {
             filter,
@@ -195,6 +212,7 @@ fn run() -> Result<(), Error> {
             thread,
             config,
             disable_bins,
+            tag,
             run_id,
         } => {
             // Load RL config
@@ -219,6 +237,7 @@ fn run() -> Result<(), Error> {
                 });
             let mut engine = rl::engine::RLEngine::new(rl_cfg, seed);
             if let Some(id) = run_id { engine.set_run_id(id); }
+            if let Some(t) = tag { engine.set_tag(t); }
             engine.run(&filter, fuzzer, total, segment, thread)?;
         }
         // Fuzz one target

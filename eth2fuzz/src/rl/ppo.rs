@@ -179,5 +179,33 @@ impl PPOPolicy {
         self.b2 -= scale * g_b2;
         Ok(())
     }
-}
 
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "input_dim": self.input_dim,
+            "hidden": self.hidden,
+            "w1": self.w1,
+            "b1": self.b1,
+            "w2": self.w2,
+            "b2": self.b2,
+            "lr": self.lr,
+            "clip_eps": self.clip_eps,
+            "baseline_ewma": self.baseline_ewma,
+            "baseline_beta": self.baseline_beta,
+        })
+    }
+
+    pub fn from_json(v: &serde_json::Value) -> Option<Self> {
+        let input_dim = v.get("input_dim")?.as_u64()? as usize;
+        let hidden = v.get("hidden")?.as_u64()? as usize;
+        let w1 = v.get("w1")?.as_array()?.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>();
+        let b1 = v.get("b1")?.as_array()?.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>();
+        let w2 = v.get("w2")?.as_array()?.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>();
+        let b2 = v.get("b2")?.as_f64()?;
+        let lr = v.get("lr")?.as_f64()?;
+        let clip_eps = v.get("clip_eps")?.as_f64()?;
+        let baseline_ewma = v.get("baseline_ewma")?.as_f64()?;
+        let baseline_beta = v.get("baseline_beta")?.as_f64()?;
+        Some(Self { input_dim, hidden, w1, b1, w2, b2, lr, clip_eps, baseline_ewma, baseline_beta })
+    }
+}

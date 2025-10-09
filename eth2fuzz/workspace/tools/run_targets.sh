@@ -22,7 +22,7 @@ mkdir -p "$WORKSPACE_DIR/hfuzz/logs" >/dev/null 2>&1 || true
 for i in $targets; do
   echo "[eth2fuzz] running $i ..."
   docker run ${RUN_DOCKER_FLAGS} -v "$WORKSPACE_DIR":/eth2fuzz/workspace ${BEACONSTATE_ENV} \
-    -e TARGET="$i" -e SEG="$SEG" -e NTHREADS="$NTHREADS" \
+    -e TARGET="$i" -e SEG="$SEG" -e NTHREADS="$NTHREADS" -e ETH2FUZZ_TAG="${ETH2FUZZ_TAG:-default}" \
     --entrypoint /bin/sh "$IMAGE" -c "sh /eth2fuzz/workspace/run_segment.sh"
 done
 

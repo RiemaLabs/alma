@@ -77,6 +77,12 @@ impl FuzzerHfuzz {
         // write_fuzzer_target(&self.dir, &self.work_dir, target)?;
         println!("[eth2fuzz] {}: {} created", self.name, target.name());
 
+        // Remove stale Cargo.lock to avoid pinning old lighthouse git revisions
+        let lock_path = self.work_dir.join("Cargo.lock");
+        if lock_path.exists() {
+            let _ = fs::remove_file(&lock_path);
+        }
+
         // sanitizers
         let rust_args = format!(
             "{} \
@@ -118,17 +124,32 @@ impl FuzzerHfuzz {
             env::var("HFUZZ_RUN_ARGS").unwrap_or_default()
         );
 
-        // Honggfuzz will first build than run the fuzzer using cargo
-        let fuzzer_bin = Command::new("cargo")
-            .args(&["+nightly", "hfuzz", "run", &target.name()])
-            .env("RUSTFLAGS", &rust_args)
-            .env("HFUZZ_RUN_ARGS", &hfuzz_args)
-            //.env("HFUZZ_BUILD_ARGS", "opt-level=3")
-            .env("HFUZZ_INPUT", corpora_dir)
-            .env(
-                "ETH2FUZZ_BEACONSTATE",
-                format!("{}", state_dir()?.display()),
-            )
+        // Determine logs directory by tag/mode
+        let cwd = env::current_dir().context("error getting current directory")?;
+        let tag = env::var("ETH2FUZZ_TAG").unwrap_or_else(|_| "default".into());
+        let mode = env::var("ETH2FUZZ_RUN_MODE").unwrap_or_else(|_| "base".into());
+        let logs_dir = cwd.join("workspace").join("logs").join(tag).join(mode).join("hfuzz").join("logs");
+        fs::create_dir_all(&logs_dir).ok();
+        let log_file = logs_dir.join(format!("{}.log", target.name()));
+
+        // Build a shell command to run cargo hfuzz and tee output to log
+        let cmd = format!(
+            "export RUSTFLAGS=\"{}\"; \
+             export HFUZZ_RUN_ARGS=\"{}\"; \
+             export HFUZZ_INPUT=\"{}\"; \
+             export ETH2FUZZ_BEACONSTATE=\"{}\"; \
+             cargo +nightly hfuzz run {} 2>&1 | tee -a {}",
+            rust_args,
+            hfuzz_args,
+            corpora_dir.display(),
+            state_dir()?.display(),
+            &target.name(),
+            log_file.display()
+        );
+
+        let fuzzer_bin = Command::new("/bin/sh")
+            .arg("-lc")
+            .arg(cmd)
             .current_dir(&self.work_dir)
             .spawn()
             .context(format!(

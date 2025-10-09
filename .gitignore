@@ -35,5 +35,5 @@ eth2fuzz/workspace/rl_runs
 eth2fuzz/workspace/rl_bins
 eth2fuzz/workspace/rl_batch
 eth2fuzz/workspace/rl_merge
-
+eth2fuzz/workspace/logs/*
 **/Cargo.lock
