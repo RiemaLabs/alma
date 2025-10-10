@@ -4,6 +4,14 @@
 
 This is a minimal, reproducible set of steps to run a baseline vs RL comparison for Lighthouse using Honggfuzz, and inspect the outputs you care about.
 
+### Prerequisites
+
+- OS: Linux or macOS (x86_64 or Apple Silicon). On macOS, use Docker Desktop or Colima.
+- Docker: Engine 20+ with BuildKit; able to run `docker build` and `docker run`.
+  - Resources: 4+ CPU, 8–16 GB RAM, 20+ GB free disk (images + corpora + logs).
+- Make + Bash available on host.
+- Network: Access to GitHub, Docker registries, and crates.io (prefetch steps will pull crates inside the container).
+
 ### Build & Setup
 
 Repository context: https://github.com/RiemaLabs/alma
