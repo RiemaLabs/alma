@@ -490,40 +490,13 @@ impl RLEngine {
             None => env::remove_var("ETH2FUZZ_CORPORA_OVERRIDE"),
         }
 
-        // Simple reward: success -> 1.0, early quit -> 0.3; plus throughput bonus
-        let base = match res {
-            Ok(()) => 1.0,
-            Err(_e) => 0.3,
-        };
-        // Iteration bonus: parse last "Summary iterations:N" from Honggfuzz log
-        let log_path = self
-            .logs_root()?
-            .join("rl")
-            .join("hfuzz")
-            .join("logs")
-            .join(format!("{}.log", arm.target_name));
-        let mut iter_bonus = 0.0_f64;
-        if let Ok(s2) = std::fs::read_to_string(&log_path) {
-            if let Some(line2) = s2.lines().rev().find(|l| l.contains("Summary iterations:")) {
-                if let Some(re2) = Regex::new(r"Summary iterations:\s*([0-9]+)").ok() {
-                    if let Some(cap2) = re2.captures(line2) {
-                        if let Some(m2) = cap2.get(1) {
-                            if let Ok(n2) = m2.as_str().parse::<u64>() {
-                                // ~0.2 bonus at ~200k iterations per segment
-                                let norm = (n2 as f64) / 200_000.0;
-                                iter_bonus = norm.min(1.0) * 0.2;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Base reward: +1.0 per segment (do not penalize crashes)
+        // Crashes are treated positively via kept samples (mutated_new_cov) and raw new samples.
+        let base = 1.0;
+        // Iteration bonus: use raw new samples (not deduplicated), scaled and capped
+        let iter_bonus = ((mutated_new as f64) * 0.0001).min(0.2);
         // Reward prefers global-contributing samples; fallback to mutated_new for some density
-        let units_bonus = if mutated_new_cov > 0 {
-            (mutated_new_cov as f64 * 0.05).min(1.0)
-        } else {
-            (mutated_new as f64 * 0.02).min(0.5)
-        };
+        let units_bonus = (mutated_new_cov as f64 * 0.05).min(1.0);
 
         // Prune: merge hfuzz inputs with corpora and write to run outputs (optional)
         let kept_dir = if let Some(paths) = &self.run_paths {
@@ -782,9 +755,25 @@ fn super_run_target(
 }
 // ===== Feature Engineering =====
 impl RLEngine {
+    fn include_kind_features(&self) -> bool {
+        // Allow forcing via env; otherwise include only if there are multiple targets.
+        if let Ok(v) = std::env::var("ETH2FUZZ_FEATURE_KIND") {
+            return v == "1" || v.eq_ignore_ascii_case("true");
+        }
+        let mut uniq = std::collections::HashSet::new();
+        for arm in &self.arms {
+            uniq.insert(arm.target_name.clone());
+        }
+        uniq.len() > 1
+    }
+
     fn feature_dim(&self) -> usize {
-        // kinds one-hot (10) + bin one-hot (4) + pulls + mean_reward + seg_norm + threads_norm -> 10+4+4=18
-        10 + 4 + 4
+        // (optional) target kind one-hot (10) + bin one-hot (4) + pulls + mean_reward + seg_norm + threads_norm (4)
+        let mut d = 4 + 4; // bins + run stats
+        if self.include_kind_features() {
+            d += 10;
+        }
+        d
     }
 
     fn build_features_for_all_arms(&self) -> Vec<Vec<f64>> {
@@ -795,15 +784,17 @@ impl RLEngine {
         xs
     }
 
-    fn build_features_for_arm(&self, idx: usize, arm: &ArmKey) -> Vec<f64> {
+    fn build_features_for_arm(&self, _idx: usize, arm: &ArmKey) -> Vec<f64> {
         let mut v = vec![0.0; self.feature_dim()];
         let mut off = 0usize;
-        // kind one-hot
-        let kind = self.corpora_kind_index(&arm.target_name);
-        if kind < 10 {
-            v[off + kind] = 1.0;
+        // (optional) kind one-hot
+        if self.include_kind_features() {
+            let kind = self.corpora_kind_index(&arm.target_name);
+            if kind < 10 {
+                v[off + kind] = 1.0;
+            }
+            off += 10;
         }
-        off += 10;
         // bin one-hot: small, medium, large, none
         let bin_idx = match arm.bin_label.as_deref() {
             Some("small") => 0,
