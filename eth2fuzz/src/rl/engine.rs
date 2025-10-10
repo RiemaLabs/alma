@@ -1,5 +1,5 @@
 use crate::env::{corpora_dir, state_dir, workspace_dir};
-use crate::fuzzers::{Fuzzer, FuzzerConfig, FuzzerQuit};
+use crate::fuzzers::{Fuzzer, FuzzerConfig};
 use crate::strum::IntoEnumIterator;
 use crate::targets::Targets;
 use failure::{bail, Error};
@@ -496,6 +496,12 @@ impl RLEngine {
             Err(_e) => 0.3,
         };
         // Iteration bonus: parse last "Summary iterations:N" from Honggfuzz log
+        let log_path = self
+            .logs_root()?
+            .join("rl")
+            .join("hfuzz")
+            .join("logs")
+            .join(format!("{}.log", arm.target_name));
         let mut iter_bonus = 0.0_f64;
         if let Ok(s2) = std::fs::read_to_string(&log_path) {
             if let Some(line2) = s2.lines().rev().find(|l| l.contains("Summary iterations:")) {

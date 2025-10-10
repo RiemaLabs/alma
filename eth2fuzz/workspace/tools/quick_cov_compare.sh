@@ -20,6 +20,12 @@ WORKSPACE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 log() { echo "[quick-cov] $*"; }
 
+# Portable file counter
+count_files() {
+  local d="$1"; [ -d "$d" ] || { echo 0; return; }
+  find "$d" -type f 2>/dev/null | wc -l | awk '{print $1}'
+}
+
 count_inputs_dir() {
   local d="$1"; local recursive="${2:-0}"
   [ -d "$d" ] || { echo 0; return 0; }
@@ -98,7 +104,7 @@ merge_count_cov() {
     cp -f "$input_dir/$name" "$tmp_newdir/" 2>/dev/null || true
   done < "$newlist_file"
   local pre
-  pre=$(find "$global_dir" -type f -maxdepth 1 2>/dev/null | wc -l | awk '{print $1}')
+  pre=$(find "$global_dir" -type f 2>/dev/null | wc -l | awk '{print $1}')
   # perform merge using the libFuzzer harness for the target
   docker run --rm -v "$WORKSPACE_DIR":/eth2fuzz/workspace --entrypoint /bin/sh "$image" -lc \
     "set -e; cd /eth2fuzz/workspace/libfuzzer/fuzz; \
@@ -106,7 +112,7 @@ merge_count_cov() {
        /eth2fuzz/workspace${global_dir#${WORKSPACE_DIR}} \
        /eth2fuzz/workspace${tmp_newdir#${WORKSPACE_DIR}}" >/dev/null 2>&1 || true
   local post
-  post=$(find "$global_dir" -type f -maxdepth 1 2>/dev/null | wc -l | awk '{print $1}')
+  post=$(find "$global_dir" -type f 2>/dev/null | wc -l | awk '{print $1}')
   local delta=$(( post - pre ))
   [ "$delta" -lt 0 ] && delta=0
   echo "$delta"
@@ -131,12 +137,18 @@ prebuild_harness() {
     "set -e; cd /eth2fuzz/workspace/libfuzzer/fuzz; cargo +nightly fuzz build $TARGET" >/dev/null 2>&1 || true
 }
 
-extract_cov() {
-  local f="$WORKSPACE_DIR/logs/${TAG}/$1/hfuzz/logs/${TARGET}.log"
+# Extract max branch_coverage_percent seen in a Honggfuzz log
+extract_cov_max() {
+  local f="$1"
   [ -f "$f" ] || { echo "NA"; return; }
-  # search from bottom for branch_coverage_percent: N
-  grep "branch_coverage_percent" "$f" | tail -n1 | sed -E 's/.*branch_coverage_percent:([0-9]+).*/\1/' || echo "NA"
+  local v
+  v=$(grep -o 'branch_coverage_percent:[[:space:]]*[0-9]\+' "$f" 2>/dev/null | awk -F: '{print $2+0}' | sort -n | tail -n1)
+  [ -n "$v" ] && echo "$v" || echo "NA"
 }
+
+# Sanitize numbers to avoid stray newlines/spaces in summary
+norm_int() { local x=$(echo "$1" | tr -dc '0-9'); [ -n "$x" ] && echo "$x" || echo 0; }
+norm_num() { local x=$(echo "$1" | sed -E 's/[^0-9\.]+//g'); [ -n "$x" ] && echo "$x" || echo 0; }
 
 log "Workspace: $WORKSPACE_DIR (fuzzer=$FUZZER)"
 
@@ -218,17 +230,9 @@ if [ -f "$BASE_STATS" ]; then
   BASE_MUT_COV=$(grep -o '"mutated_new_cov"[[:space:]]*:[[:space:]]*[0-9]\+' "$BASE_STATS" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}' || echo 0)
   # mutated_new aligns to coverage-contributing samples for non-libfuzzer
   BASE_MUT="$BASE_MUT_COV"
-  # coverage: take last non-empty branch_cov_pct from stats or fallback to baseline RL hfuzz log
-  tmpcov=$(grep -o '"branch_cov_pct"[[:space:]]*:[[:space:]]*[0-9]\+\.?[0-9]*' "$BASE_STATS" 2>/dev/null | tail -n1 | awk -F: '{print $2+0}' || echo "")
-  if [ -n "$tmpcov" ]; then
-    BASE_COV="$tmpcov"
-  else
-    BASE_HFUZZ_LOG="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/hfuzz/logs/${TARGET}.log"
-    if [ -f "$BASE_HFUZZ_LOG" ]; then
-      tmpcov=$(grep -o 'branch_coverage_percent:[[:space:]]*[0-9]\+' "$BASE_HFUZZ_LOG" 2>/dev/null | tail -n1 | awk -F: '{print $2+0}' || echo "")
-      [ -n "$tmpcov" ] && BASE_COV="$tmpcov"
-    fi
-  fi
+  # coverage: compute max across baseline RL honggfuzz log
+  BASE_HFUZZ_LOG="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/hfuzz/logs/${TARGET}.log"
+  BASE_COV=$(extract_cov_max "$BASE_HFUZZ_LOG")
   # new_units from hfuzz log if present under baseline tag
   BASE_LOG="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/hfuzz/logs/${TARGET}.log"
   if [ -f "$BASE_LOG" ]; then
@@ -236,6 +240,28 @@ if [ -f "$BASE_STATS" ]; then
 fi
 fi
 log "Baseline (rl): mutated_new_cov=$BASE_MUT_COV, cov=$BASE_COV, new_units_added(sum)=$BASE_NEW"
+
+# Copy baseline kept corpus from baseline RL tag into canonical base path
+BASE_RL_CORP="$WORKSPACE_DIR/logs/${BASE_TAG}/rl/libfuzzer_corpus/${TARGET}"
+BASE_OUT_CORP="$WORKSPACE_DIR/logs/${TAG}/base/libfuzzer_corpus/${TARGET}"
+if [ -d "$BASE_RL_CORP" ]; then
+  log "[debug] baseline kept src=$(count_files \"$BASE_RL_CORP\") dst(before)=$(count_files \"$BASE_OUT_CORP\")"
+  mkdir -p "$BASE_OUT_CORP"
+  # portable copy of files (non-recursive)
+  for f in "$BASE_RL_CORP"/*; do
+    [ -f "$f" ] || continue
+    cp -f "$f" "$BASE_OUT_CORP"/ 2>/dev/null || true
+  done
+  # If stats sum is zero but files exist, fallback to file count
+  local_count=$(count_files "$BASE_RL_CORP")
+  if [ "$local_count" -gt 0 ] && [ "$(echo "$BASE_MUT_COV" | tr -dc '0-9')" = "0" ]; then
+    BASE_MUT_COV=$local_count
+    BASE_MUT=$BASE_MUT_COV
+  fi
+  log "[debug] baseline kept dst(after)=$(count_files \"$BASE_OUT_CORP\") mutated_new_cov=$BASE_MUT_COV"
+fi
+
+ 
 
 # PPO RL
 RUN_ID="cov_$(date +%s)"
@@ -256,7 +282,8 @@ docker run -v "$WORKSPACE_DIR":/eth2fuzz/workspace \
   "$IMAGE" rl-fuzz -q "$TARGET" --fuzzer "$FUZZER" --total "$RL_SECS" --segment "$RL_SEG" -n "$THREADS" --config configs/rl_enabled.json --run-id "$RUN_ID" --tag "$TAG" || true
 RL_AFTER=$(count_inputs_dir "$RL_INPUT_DIR" "$RL_RECURSIVE")
 RL_DELTA=$(( RL_AFTER - RL_BEFORE ))
-RL_COV=$(extract_cov rl)
+# Compute RL coverage as max across the whole RL log
+RL_COV=$(extract_cov_max "$WORKSPACE_DIR/logs/${TAG}/rl/hfuzz/logs/${TARGET}.log")
 RL_NEW=$( ( [ -f "$RL_LOG" ] && tail -c +$((RL_POS+1)) "$RL_LOG" | grep -oE 'new_units_added:([0-9]+)' | awk -F: '{s+=$2} END{print s+0}' ) || echo 0 )
 # compute mutated_new vs corpora seeds (approximate for RL)
 RL_POST=$(mktemp)
@@ -305,15 +332,23 @@ if [ "$FUZZER" != "libfuzzer" ]; then
   RL_MUT=$RL_MUT_COV
 fi
 
+# Sanitize numbers for summary to avoid stray newlines/spaces
+BASE_MUT=$(norm_int "$BASE_MUT")
+BASE_MUT_COV=$(norm_int "$BASE_MUT_COV")
+RL_MUT=$(norm_int "$RL_MUT")
+RL_MUT_COV=$(norm_int "$RL_MUT_COV")
+BASE_COV=$( [ "$BASE_COV" = "NA" ] && echo NA || norm_num "$BASE_COV" )
+RL_COV=$( [ "$RL_COV" = "NA" ] && echo NA || norm_num "$RL_COV" )
+
 echo "--- SUMMARY (target=$TARGET) ---"
 # Default: print only mutated_new_cov and coverage for both sides
-SHOW_VERBOSE="${SHOW_VERBOSE:-0}"
+SHOW_VERBOSE="${SHOW_VERBOSE:-${SHOW_FILES:-0}}"
 if [ "$SHOW_VERBOSE" = "1" ]; then
   echo "Baseline: inputs +$BASE_DELTA, new_units +$BASE_NEW, mutated_new +$BASE_MUT, mutated_new_cov +$BASE_MUT_COV, cov: $BASE_COV%"
   echo "RL:       inputs +$RL_DELTA, new_units +$RL_NEW, mutated_new +$RL_MUT, mutated_new_cov +$RL_MUT_COV, cov: $RL_COV%"
 else
-  echo "Baseline: mutated_new_cov +$BASE_MUT_COV, cov: $BASE_COV%"
-  echo "RL:       mutated_new_cov +$RL_MUT_COV, cov: $RL_COV%"
+  echo "Baseline: mutated_new_cov +$BASE_MUT_COV, cov: ${BASE_COV}%"
+  echo "RL:       mutated_new_cov +$RL_MUT_COV, cov: ${RL_COV}%"
 fi
 
 # Cleanup ephemeral dirs unless kept
@@ -322,7 +357,8 @@ if [ "${KEEP_TMP:-0}" != "1" ]; then
   rm -rf "$WORKSPACE_DIR/logs/${TAG}/rl/rl_input/${TARGET}" 2>/dev/null || true
 fi
 # Optionally remove baseline and RL run stats to avoid clutter
-if [ "${KEEP_BASE_RUN:-0}" != "1" ]; then
+# Keep baseline run stats by default; remove only if KEEP_BASE_RUN=0
+if [ "${KEEP_BASE_RUN:-1}" != "1" ]; then
   rm -rf "$WORKSPACE_DIR/logs/${BASE_TAG}/rl/rl_runs/$BASE_RUN_ID" 2>/dev/null || true
 fi
 if [ "${KEEP_RL_RUN:-1}" != "1" ]; then
