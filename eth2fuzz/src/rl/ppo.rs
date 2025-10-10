@@ -27,7 +27,7 @@ impl PPOPolicy {
     pub fn new(input_dim: usize, hidden: usize, lr: f64, clip_eps: f64) -> Self {
         // Xavier-like init
         let mut w1 = vec![0.0; hidden * input_dim];
-        let mut b1 = vec![0.0; hidden];
+        let b1 = vec![0.0; hidden];
         let mut w2 = vec![0.0; hidden];
         let b2 = 0.0;
         let scale1 = (2.0 / (input_dim as f64)).sqrt();
@@ -182,22 +182,22 @@ impl PPOPolicy {
                 g_b2 += dz;
 
                 // backprop to h1
-                let mut dL_dh1 = vec![0.0; self.hidden];
+                let mut dl_dh1 = vec![0.0; self.hidden];
                 for h in 0..self.hidden {
-                    dL_dh1[h] = dz * self.w2[h];
+                    dl_dh1[h] = dz * self.w2[h];
                 }
                 // relu grad
-                let mut dL_dz1 = vec![0.0; self.hidden];
+                let mut dl_dz1 = vec![0.0; self.hidden];
                 for h in 0..self.hidden {
-                    dL_dz1[h] = dL_dh1[h] * Self::relu_grad(z1[h]);
+                    dl_dz1[h] = dl_dh1[h] * Self::relu_grad(z1[h]);
                 }
                 // w1, b1 grads
                 for h in 0..self.hidden {
                     let base = h * self.input_dim;
                     for d in 0..self.input_dim {
-                        g_w1[base + d] += dL_dz1[h] * x[d];
+                        g_w1[base + d] += dl_dz1[h] * x[d];
                     }
-                    g_b1[h] += dL_dz1[h];
+                    g_b1[h] += dl_dz1[h];
                 }
             }
 

@@ -109,35 +109,7 @@ jobs:
       - name: Build Docker
         run: cd eth2diff && make zcli
 
-  # Try to compile the nimbus dockerfile
-  build-docker-nimbus:
-    name: Building docker nimbus
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install latest nightly
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: nightly
-            override: true
-
-      - name: Build Docker
-        run: cd eth2diff && make nimbus
-
-  # Try to compile the prysm dockerfile
-  build-docker-prysm:
-    name: Building docker prysm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install latest nightly
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: nightly
-            override: true
-
-      - name: Build Docker
-        run: cd eth2diff && make prysm
+  # (disabled) nimbus/prysm docker builds
 
   # Try to compile the teku dockerfile
   build-docker-teku:

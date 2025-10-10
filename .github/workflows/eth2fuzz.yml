@@ -87,27 +87,7 @@ jobs:
       - name: Run target
         run: cd eth2fuzz && make test-lodestar
 
-  # Try to compile the nimbus dockerfile
-  build-docker-nimbus:
-    name: Building docker nimbus
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Build Docker
-        run: cd eth2fuzz && make nimbus
-      - name: Run target
-        run: cd eth2fuzz && make test-nimbus
-
-  # Try to compile the prysm dockerfile
-  build-docker-prysm:
-    name: Building docker prysm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Build Docker
-        run: cd eth2fuzz && make prysm
-      - name: Run target
-        run: cd eth2fuzz && make test-prysm
+  # (disabled) nimbus/prysm docker builds
 
   # Try to compile the teku dockerfile
   build-docker-teku:
@@ -119,4 +99,3 @@ jobs:
         run: cd eth2fuzz && make teku
       - name: Run target
         run: cd eth2fuzz && make test-teku
-

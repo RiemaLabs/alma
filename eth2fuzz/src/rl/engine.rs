@@ -59,7 +59,7 @@ impl RLEngine {
             rng: StdRng::seed_from_u64(seed),
             ppo: None,
             buffer: Vec::new(),
-            
+
             run_id: None,
             run_paths: None,
             run_stats: None,
@@ -357,7 +357,9 @@ impl RLEngine {
             if let Ok(rd) = std::fs::read_dir(&seg_input_dir) {
                 for e in rd.flatten() {
                     let p = e.path();
-                    if !p.is_file() { continue; }
+                    if !p.is_file() {
+                        continue;
+                    }
                     if let Ok(mut f) = std::fs::File::open(&p) {
                         let mut hasher = Sha256::new();
                         let _ = std::io::copy(&mut f, &mut hasher);
@@ -457,31 +459,58 @@ impl RLEngine {
         // Fallback: if no newly_seen (honggfuzz didn't persist inputs), run merge against per-segment input dir
         if mutated_new_cov == 0 {
             let logs_root = self.logs_root()?;
-            let global_corpus = logs_root.join("rl").join("libfuzzer_corpus").join(&arm.target_name);
+            let global_corpus = logs_root
+                .join("rl")
+                .join("libfuzzer_corpus")
+                .join(&arm.target_name);
             std::fs::create_dir_all(&global_corpus).ok();
             // snapshot before
             let mut before_hashes: HashSet<String> = HashSet::new();
             if let Ok(rd) = std::fs::read_dir(&global_corpus) {
-                for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); before_hashes.insert(format!("{:x}", hasher.finalize())); } } }
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_file() {
+                        if let Ok(mut f) = std::fs::File::open(&p) {
+                            let mut hasher = Sha256::new();
+                            let _ = std::io::copy(&mut f, &mut hasher);
+                            before_hashes.insert(format!("{:x}", hasher.finalize()));
+                        }
+                    }
+                }
             }
             // run merge with seg_input_dir as newdir
             let fuzz_dir = workspace_dir()?.join("libfuzzer").join("fuzz");
             let merge_status = std::process::Command::new("cargo")
-                .args(&["+nightly","fuzz","run", &arm.target_name])
+                .args(&["+nightly", "fuzz", "run", &arm.target_name])
                 .arg("--")
-                .args(&["-merge=1","-runs=0"])
+                .args(&["-merge=1", "-runs=0"])
                 .arg(global_corpus.to_string_lossy().to_string())
                 .arg(seg_input_dir.to_string_lossy().to_string())
                 .env("ETH2FUZZ_BEACONSTATE", state_dir()?.display().to_string())
                 .current_dir(&fuzz_dir)
                 .status();
-            if let Ok(st) = merge_status { let _ = st; }
+            if let Ok(st) = merge_status {
+                let _ = st;
+            }
             let mut after_hashes: HashSet<String> = HashSet::new();
             if let Ok(rd) = std::fs::read_dir(&global_corpus) {
-                for e in rd.flatten() { let p = e.path(); if p.is_file() { if let Ok(mut f) = std::fs::File::open(&p) { let mut hasher = Sha256::new(); let _= std::io::copy(&mut f, &mut hasher); after_hashes.insert(format!("{:x}", hasher.finalize())); } } }
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_file() {
+                        if let Ok(mut f) = std::fs::File::open(&p) {
+                            let mut hasher = Sha256::new();
+                            let _ = std::io::copy(&mut f, &mut hasher);
+                            after_hashes.insert(format!("{:x}", hasher.finalize()));
+                        }
+                    }
+                }
             }
             // count how many hashes were newly included
-            for h in after_hashes.iter() { if !before_hashes.contains(h) { mutated_new_cov += 1; } }
+            for h in after_hashes.iter() {
+                if !before_hashes.contains(h) {
+                    mutated_new_cov += 1;
+                }
+            }
         }
 
         // Restore env override to previous state
@@ -819,8 +848,7 @@ impl RLEngine {
         // default norms
         v[off] = 1.0;
         off += 1; // seg_norm placeholder (not wired)
-        v[off] = 1.0;
-        off += 1; // threads_norm placeholder (not wired)
+        v[off] = 1.0; // threads_norm placeholder (not wired)
         v
     }
 
@@ -847,5 +875,7 @@ impl RLEngine {
         Ok(workspace_dir()?.join("logs").join(&self.tag))
     }
 
-    fn context_bias_for_arm(&self, _arm: &ArmKey) -> f64 { 1.0 }
+    fn context_bias_for_arm(&self, _arm: &ArmKey) -> f64 {
+        1.0
+    }
 }

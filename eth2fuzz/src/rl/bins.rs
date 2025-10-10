@@ -34,7 +34,7 @@ pub fn ensure_size_bins(
     let bins_root = workspace_dir.join("rl_bins").join(target_name);
     fs::create_dir_all(&bins_root)?;
 
-    let mut mkbin = |label: &str| -> io::Result<PathBuf> {
+    let mkbin = |label: &str| -> io::Result<PathBuf> {
         let p = bins_root.join(label);
         fs::create_dir_all(&p)?;
         Ok(p)
@@ -191,11 +191,11 @@ pub fn prune_dir_by_hash_limit(dir: &Path, keep_limit: usize) -> Result<usize, E
         i += step;
     }
     // remove others
-    let mut removed = 0usize;
+    let mut _removed = 0usize;
     for (p, _) in uniq.into_iter() {
         if !keep_set.contains(&p) {
             let _ = fs::remove_file(p);
-            removed += 1;
+            _removed += 1;
         }
     }
     Ok(keep_limit)
