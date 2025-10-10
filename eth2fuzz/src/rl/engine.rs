@@ -665,8 +665,13 @@ impl RLEngine {
         }
         let mut remaining = total_seconds.max(0);
         while remaining > 0 {
-            // Use PPO policy exclusively
-            let (idx, xs, old_probs) = self.select_arm_ppo();
+            // Baseline: if only one arm, pick it deterministically.
+            // Otherwise: PPO if available, else UCB1.
+            let (idx, xs, old_probs) = if self.arms.len() == 1 {
+                (0usize, self.build_features_for_all_arms(), vec![1.0])
+            } else {
+                self.select_arm_ppo()
+            };
             let arm = self.arms[idx].clone();
             let reward = self.run_one_segment(&arm, fuzzer, segment_seconds, threads)?;
             self.update_stat(idx, reward);

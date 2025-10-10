@@ -147,7 +147,7 @@ extract_cov_max() {
 }
 
 # Sanitize numbers to avoid stray newlines/spaces in summary
-norm_int() { local x=$(echo "$1" | tr -dc '0-9'); [ -n "$x" ] && echo "$x" || echo 0; }
+norm_int() { local n=$(printf "%s\n" "$1" | grep -oE '[0-9]+' 2>/dev/null | awk '{s+=$1} END{print (s=="")?0:s}'); echo "$n"; }
 norm_num() { local x=$(echo "$1" | sed -E 's/[^0-9\.]+//g'); [ -n "$x" ] && echo "$x" || echo 0; }
 
 log "Workspace: $WORKSPACE_DIR (fuzzer=$FUZZER)"
@@ -305,16 +305,10 @@ fi
 log "RL inputs delta: $RL_DELTA, new_units_added(sum): $RL_NEW, mutated_new: $RL_MUT, mutated_new_cov: $RL_MUT_COV, branch_coverage_percent: $RL_COV"
 
 # If needed, compute mutated_new_cov via offline merge for baseline (when stats missing)
-if [ "$BASE_MUT_COV" = "0" ] || [ "$BASE_MUT_COV" = "NA" ]; then
+if [ "$(norm_int "$BASE_MUT_COV")" -eq 0 ]; then
   BASE_GLOBAL_CORP="$WORKSPACE_DIR/logs/${TAG}/base/libfuzzer_corpus/${TARGET}"
-  # Build a synthetic new list from baseline seed dir changes (if any); otherwise skip
-  BASE_PRE_LIST="$(mktemp)"; BASE_POST_LIST="$(mktemp)"; BASE_DIFF_LIST="$(mktemp)"
-  list_inputs_dir "$BASE_SEED_DIR" 0 > "$BASE_PRE_LIST"
-  # no reliable baseline pre snapshot; skip producing a diff if empty
-  # Merge entire seed as a last resort (bounded by MERGE_LIMIT)
-  list_inputs_dir "$BASE_SEED_DIR" 0 > "$BASE_POST_LIST"
-  comm -13 "$BASE_PRE_LIST" "$BASE_POST_LIST" > "$BASE_DIFF_LIST" || true
-  BASE_MUT_COV=$(merge_count_cov "$BASE_GLOBAL_CORP" "$BASE_DIFF_LIST" "$BASE_SEED_DIR" "$TARGET" "$IMAGE")
+  BASE_SEED_LIST="$(mktemp)"; list_inputs_dir "$BASE_SEED_DIR" 0 > "$BASE_SEED_LIST"
+  BASE_MUT_COV=$(merge_count_cov "$BASE_GLOBAL_CORP" "$BASE_SEED_LIST" "$BASE_SEED_DIR" "$TARGET" "$IMAGE")
   BASE_MUT="$BASE_MUT_COV"
 fi
 
