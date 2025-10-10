@@ -38,6 +38,14 @@ Show detailed fields (new_units / mutated_new):
 SHOW_VERBOSE=1 make cov-attestation fuzzer=honggfuzz T=60 RT=60 S=10 n=2 tag=demo
 ```
 
+After running the command, you will see a summary like this:
+
+```
+--- SUMMARY (target=lighthouse_attestation) ---
+Baseline: mutated_new_cov +35, cov: 6%
+RL:       mutated_new_cov +48, cov: 7%
+``` 
+
 ### Inspect Artifacts
 
 - Baseline kept samples:
