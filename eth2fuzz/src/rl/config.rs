@@ -29,7 +29,8 @@ fn default_exploration() -> f64 {
     0.2
 }
 fn default_ucb_c() -> f64 {
-    1.41421356237
+    // Use the standard library constant to avoid clippy::approx_constant
+    std::f64::consts::SQRT_2
 }
 fn default_use_bins() -> bool {
     true
