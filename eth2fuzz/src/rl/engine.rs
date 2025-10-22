@@ -86,7 +86,12 @@ impl RLEngine {
 
         // Prepare bins per target (if enabled and rust target)
         for name in filtered.iter() {
-            let t = Targets::iter().find(|x| x.name() == *name).unwrap();
+            let maybe_t = Targets::iter().find(|x| x.name() == *name);
+            if maybe_t.is_none() {
+                eprintln!("[rl] warn: unknown target `{}`; skipping", name);
+                continue;
+            }
+            let t = maybe_t.unwrap();
             if self.cfg.use_bins && t.language() == "rust" {
                 let corpus = corpora_dir()?.join(t.corpora());
                 let ws = self.logs_root()?.join("rl");
@@ -202,9 +207,10 @@ impl RLEngine {
         threads: Option<i32>,
     ) -> Result<f64, Error> {
         // Map back to Targets enum
-        let target_enum = Targets::iter()
-            .find(|x| x.name() == arm.target_name)
-            .expect("valid target");
+        let target_enum = match Targets::iter().find(|x| x.name() == arm.target_name) {
+            Some(t) => t,
+            None => bail!(format!("Unknown target `{}`", arm.target_name)),
+        };
         let mut cfg = FuzzerConfig::default();
         cfg.timeout = Some(segment);
         cfg.thread = threads;
