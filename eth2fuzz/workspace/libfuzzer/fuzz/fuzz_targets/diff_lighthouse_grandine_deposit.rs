@@ -35,11 +35,11 @@ lazy_static!{static ref CTX:BeaconCtx={use std::env;let d=env::var("ETH2FUZZ_BEA
 
 fn lighthouse_verdict(state:&BeaconState<MainnetEthSpec>, x:&Deposit)->bool{let spec:ChainSpec=MainnetEthSpec::default_spec();let mut s=state.clone();process_deposits(&mut s,&[x.clone()],&spec).is_ok()}
 lazy_static!{ static ref GCONFIG:GConfig=GConfig::mainnet(); static ref GPUBKEY:GPubkeyCache=GPubkeyCache::default(); }
-// Grandine compare via unphased::validate_deposits（注意：该路径会验签；签名关闭无法应用于 deposits）
+// Grandine compare via unphased::validate_deposits_no_verify
 fn grandine_verdict(bytes:&[u8], state_path:&str)->Option<bool>{
     let x = gtypes::phase0::containers::Deposit::from_ssz(&*GCONFIG,bytes).ok()?;
     let st=std::fs::read(state_path).ok()?; let gstate=gtypes::combined::BeaconState::<GMainnet>::from_ssz(&*GCONFIG,&st).ok()?;
-    Some(gtrans::unphased::validate_deposits(&*GCONFIG,&*GPUBKEY,&gstate,std::iter::once(x)).is_ok())
+    Some(gtrans::unphased::validate_deposits_no_verify(&*GCONFIG,&*GPUBKEY,&gstate,std::iter::once(x)).is_ok())
 }
 
 fn run_grandine_oracle(bytes:&[u8], state_path:&str)->io::Result<Option<bool>>{let cmd=match std::env::var("DIFF_ORACLE_CMD"){Ok(c) if !c.trim().is_empty()=>c,_=>return Ok(None)};let sh=format!("{} --type deposit --state {}",cmd,shell_escape::escape(state_path));let mut ch=Command::new("/bin/sh").arg("-lc").arg(sh).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;if let Some(mut i)=ch.stdin.take(){let _=i.write_all(bytes);}let out=ch.wait_with_output()?;if !out.status.success(){return Ok(None);}let s=String::from_utf8_lossy(&out.stdout).to_string();let s=s.trim().to_ascii_lowercase();Ok(if s.contains("ok")||s=="1"||s=="true"{Some(true)}else if s.contains("err")||s=="0"||s=="false"{Some(false)}else{None})}
