@@ -4,3 +4,6 @@
 [submodule "eth2fuzz/lighthouse"]
 	path = eth2fuzz/lighthouse
 	url = https://github.com/sigp/lighthouse
+[submodule "eth2fuzz/grandine"]
+	path = eth2fuzz/grandine
+	url = https://github.com/grandinetech/grandine
