@@ -14,6 +14,8 @@ rust_hfuzz.log
 
 # Logs
 *.log
+all_fuzz_log_fuzz.txt
+diff_fuzz_log.txt
 workspace/hfuzz/Cargo.lock
 workspace/hfuzz/coverage/*
 
@@ -39,3 +41,9 @@ workspace/javafuzz/out_teku_voluntary_exit/
 workspace/javafuzz/out_teku_block/
 workspace/javafuzz/out_teku_deposit/
 *.class
+
+# Fuzz artifacts and local cargo cache
+workspace/libfuzzer/fuzz/artifacts/
+workspace/cargo-home/
+workspace/hfuzz/logs/
+workspace/logs/

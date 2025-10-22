@@ -17,7 +17,7 @@ extern crate ssz;
 extern crate ssz_derive;
 
 use ssz::Decode; // Encode
-use types::{BeaconState, MainnetEthSpec};
+use types::{BeaconState, MainnetEthSpec, ChainSpec, EthSpec};
 
 use std::fs::{File};
 use std::io;
@@ -64,10 +64,11 @@ fn read_contents_from_path(path_str: &String) ->
 /// and return a BeaconState
 #[inline(always)]
 fn get_beaconstate(path_str: &String) -> 
-	Result<BeaconState<MainnetEthSpec>, ssz::DecodeError> {
-    	let beacon_blob = read_contents_from_path(&path_str).unwrap();
-    	let beacon_blob = BeaconState::from_ssz_bytes(&beacon_blob)?;
-    	Ok(beacon_blob)
+    Result<BeaconState<MainnetEthSpec>, ssz::DecodeError> {
+        let beacon_blob = read_contents_from_path(&path_str).unwrap();
+        let spec: ChainSpec = MainnetEthSpec::default_spec();
+        let beacon_blob = BeaconState::from_ssz_bytes(&beacon_blob, &spec)?;
+        Ok(beacon_blob)
 }
 
 #[inline(always)]

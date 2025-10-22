@@ -12,8 +12,8 @@ rand = "0.6"
 ssz = { package = "ethereum_ssz", version = "0.9.0" }
 ssz_derive = { package = "ethereum_ssz_derive", version = "0.9.0" }
 # Use relative paths to local lighthouse sub-crates (no user-specific absolute paths)
-state_processing = { path = "../../../lighthouse/consensus/state_processing" }
-types = { path = "../../../lighthouse/consensus/types" }
+state_processing = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/lighthouse", package = "state_processing" }
+types = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/lighthouse", package = "types" }
 
 #[patch.crates-io]
 # Use published crates for hashing/ssz/tree_hash to match latest Lighthouse

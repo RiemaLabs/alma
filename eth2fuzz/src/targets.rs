@@ -14,6 +14,15 @@ pub enum Targets {
     LighthouseEnr,
     LighthouseBLS,
     LighthouseDiscv5Packet,
+    // Differential (LibFuzzer)
+    DiffLighthouseGrandineAttestation,
+    DiffLighthouseGrandineBlock,
+    DiffLighthouseGrandineBlockHeader,
+    DiffLighthouseGrandineAttesterSlashing,
+    DiffLighthouseGrandineProposerSlashing,
+    DiffLighthouseGrandineVoluntaryExit,
+    DiffLighthouseGrandineDeposit,
+    
     // Lodestar
     LodestarAttestation,
     LodestarAttesterSlashing,
@@ -68,6 +77,15 @@ impl Targets {
             Targets::LighthouseEnr => "lighthouse_enr",
             Targets::LighthouseBLS => "lighthouse_bls",
             Targets::LighthouseDiscv5Packet => "lighthouse_discv5_packet",
+            // Differential (LibFuzzer)
+            Targets::DiffLighthouseGrandineAttestation => "diff_lighthouse_grandine_attestation",
+            Targets::DiffLighthouseGrandineBlock => "diff_lighthouse_grandine_block",
+            Targets::DiffLighthouseGrandineBlockHeader => "diff_lighthouse_grandine_block_header",
+            Targets::DiffLighthouseGrandineAttesterSlashing => "diff_lighthouse_grandine_attester_slashing",
+            Targets::DiffLighthouseGrandineProposerSlashing => "diff_lighthouse_grandine_proposer_slashing",
+            Targets::DiffLighthouseGrandineVoluntaryExit => "diff_lighthouse_grandine_voluntary_exit",
+            Targets::DiffLighthouseGrandineDeposit => "diff_lighthouse_grandine_deposit",
+            
             //Lodestar
             Targets::LodestarAttestation => "lodestar_attestation",
             Targets::LodestarAttesterSlashing => "lodestar_attester_slashing",
@@ -123,6 +141,15 @@ impl Targets {
             Targets::LighthouseEnr => "enr",
             Targets::LighthouseBLS => "bls",
             Targets::LighthouseDiscv5Packet => "discv5_packet",
+            
+            Targets::DiffLighthouseGrandineBlock => "block",
+            Targets::DiffLighthouseGrandineBlockHeader => "block_header",
+            Targets::DiffLighthouseGrandineAttesterSlashing => "attester_slashing",
+            Targets::DiffLighthouseGrandineProposerSlashing => "proposer_slashing",
+            Targets::DiffLighthouseGrandineVoluntaryExit => "voluntary_exit",
+            Targets::DiffLighthouseGrandineDeposit => "deposit",
+            // Differential
+            Targets::DiffLighthouseGrandineAttestation => "attestation",
             //Lodestar
             Targets::LodestarAttestation => "attestation",
             Targets::LodestarAttesterSlashing => "attester_slashing",
@@ -177,7 +204,16 @@ impl Targets {
             //| Targets::LighthouseBeaconstate
             | Targets::LighthouseEnr
             | Targets::LighthouseBLS
-            | Targets::LighthouseDiscv5Packet => "rust",
+            | Targets::LighthouseDiscv5Packet
+            // Differential
+            | Targets::DiffLighthouseGrandineAttestation
+            | Targets::DiffLighthouseGrandineBlock
+            | Targets::DiffLighthouseGrandineBlockHeader
+            | Targets::DiffLighthouseGrandineAttesterSlashing
+            | Targets::DiffLighthouseGrandineProposerSlashing
+            | Targets::DiffLighthouseGrandineVoluntaryExit
+            | Targets::DiffLighthouseGrandineDeposit => "rust",
+            
             //Lodestar
             Targets::LodestarAttestation
             | Targets::LodestarAttesterSlashing

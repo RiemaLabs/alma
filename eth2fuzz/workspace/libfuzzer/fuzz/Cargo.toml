@@ -20,12 +20,22 @@ fuzz-targets = {path = "../../targets/rust"}
 # Use crates.io for SSZ crates; keep lighthouse path deps for types/state_processing
 ssz = { package = "ethereum_ssz", version = "0.9" }
 ssz_derive = { package = "ethereum_ssz_derive", version = "0.9" }
-types = { path = "../../../lighthouse/consensus/types" }
-state_processing = { path = "../../../lighthouse/consensus/state_processing" }
+types = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/lighthouse", package = "types" }
+state_processing = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/lighthouse", package = "state_processing" }
+
+# Grandine direct-call deps (local checkout under repo root ./grandine)
+gtypes = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/grandine", package = "types" }
+gssz = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/grandine", package = "ssz" }
+gtrans = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/grandine", package = "transition_functions" }
+gpubkey_cache = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/grandine", package = "pubkey_cache" }
+bls = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/grandine", package = "bls", features = ["blst"] }
+ghelper = { git = "file:///Users/hanzhi/Documents/Research/alma/eth2fuzz/grandine", package = "helper_functions" }
 
 [patch.crates-io]
 # (no local patches; resolve via fuzz-targets dependencies)
 # web3 = { git = "https://github.com/tomusdrw/rust-web3" }
+
+
 
 [[bin]]
 name = "lighthouse_attestation"
@@ -90,5 +100,47 @@ doc = false
 [[bin]]
 name = "lighthouse_discv5_packet"
 path = "fuzz_targets/lighthouse_discv5_packet.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_attestation"
+path = "fuzz_targets/diff_lighthouse_grandine_attestation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_block"
+path = "fuzz_targets/diff_lighthouse_grandine_block.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_block_header"
+path = "fuzz_targets/diff_lighthouse_grandine_block_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_attester_slashing"
+path = "fuzz_targets/diff_lighthouse_grandine_attester_slashing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_proposer_slashing"
+path = "fuzz_targets/diff_lighthouse_grandine_proposer_slashing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_voluntary_exit"
+path = "fuzz_targets/diff_lighthouse_grandine_voluntary_exit.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diff_lighthouse_grandine_deposit"
+path = "fuzz_targets/diff_lighthouse_grandine_deposit.rs"
 test = false
 doc = false

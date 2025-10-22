@@ -37,3 +37,6 @@ eth2fuzz/workspace/rl_batch
 eth2fuzz/workspace/rl_merge
 eth2fuzz/workspace/logs/*
 **/Cargo.lock
+
+eth2fuzz/grandine
+eth2fuzz/grandine.bak.**

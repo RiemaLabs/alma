@@ -1,0 +1,35 @@
+diff --git a/transition_functions/src/lib.rs b/transition_functions/src/lib.rs
+index 1234567..89abcde 100644
+--- a/transition_functions/src/lib.rs
++++ b/transition_functions/src/lib.rs
+@@
+ pub mod unphased {
+-    pub use block_processing::{
+-        validate_attestation, validate_attester_slashing, validate_attester_slashing_with_verifier,
+-        validate_proposer_slashing, validate_voluntary_exit, validate_voluntary_exit_with_verifier,
+-    };
++    // Public validation helpers (expose with_verifier variants to allow turning signature
++    // verification on/off in external harnesses like fuzzers).
++    pub use block_processing::{
++        validate_attestation, validate_attestation_with_verifier,
++        validate_attester_slashing, validate_attester_slashing_with_verifier,
++        validate_proposer_slashing, validate_proposer_slashing_with_verifier,
++        validate_voluntary_exit, validate_voluntary_exit_with_verifier,
++        // Also expose header/deposit helpers for targeted validations.
++        process_block_header,
++        validate_deposits,
++    };
+
+     pub use epoch_intermediates::EpochDeltas;
+     pub use slot_processing::{process_slot, ProcessSlots};
+     pub use state_transition::StateRootPolicy;
+@@
+-    pub(crate) use block_processing::{
+-        process_block_header, process_block_header_for_gossip, process_eth1_data, process_randao,
+-        process_voluntary_exit, validate_attestation_with_verifier, validate_deposits,
+-        validate_proposer_slashing_with_verifier, CombinedDeposit,
+-    };
++    pub(crate) use block_processing::{
++        process_block_header_for_gossip, process_eth1_data, process_randao,
++        CombinedDeposit,
++    };
