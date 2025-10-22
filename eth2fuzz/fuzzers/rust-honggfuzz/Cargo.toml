@@ -11,8 +11,8 @@ honggfuzz = "0.5"
 rand = "0.6"
 ssz = { package = "ethereum_ssz", version = "0.9.0" }
 ssz_derive = { package = "ethereum_ssz_derive", version = "0.9.0" }
-state_processing = { git = "file:///eth2fuzz/lighthouse", package = "state_processing" }
-types = { git = "file:///eth2fuzz/lighthouse", package = "types" }
+state_processing = { path = "../../lighthouse/consensus/state_processing" }
+types = { path = "../../lighthouse/consensus/types" }
 
 #[patch.crates-io]
 # Use published crates for hashing/ssz/tree_hash to match latest Lighthouse

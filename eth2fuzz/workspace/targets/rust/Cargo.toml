@@ -8,9 +8,9 @@ edition = "2018"
 walkdir = "2"
 ssz = { package = "ethereum_ssz", version = "0.9.0" }
 ssz_derive = { package = "ethereum_ssz_derive", version = "0.9.0" }
-state_processing = { git = "file:///eth2fuzz/lighthouse", package = "state_processing" }
-types = { git = "file:///eth2fuzz/lighthouse", package = "types" }
-bls = { git = "file:///eth2fuzz/lighthouse", package = "bls" }
-lighthouse_network =  { git = "file:///eth2fuzz/lighthouse", package = "lighthouse_network" }
+state_processing = { path = "../../../lighthouse/consensus/state_processing" }
+types = { path = "../../../lighthouse/consensus/types" }
+bls = { path = "../../../lighthouse/crypto/bls" }
+lighthouse_network =  { path = "../../../lighthouse/beacon_node/lighthouse_network" }
 
 ## libp2p now comes via lighthouse_network; no direct pin here.

@@ -20,7 +20,8 @@ fuzz-targets = {path = "../../targets/rust"}
 # Use crates.io for SSZ crates; keep lighthouse path deps for types/state_processing
 ssz = { package = "ethereum_ssz", version = "0.9" }
 ssz_derive = { package = "ethereum_ssz_derive", version = "0.9" }
-types = { git = "file:///eth2fuzz/lighthouse", package = "types" }
+types = { path = "../../../lighthouse/consensus/types" }
+state_processing = { path = "../../../lighthouse/consensus/state_processing" }
 
 [patch.crates-io]
 # (no local patches; resolve via fuzz-targets dependencies)

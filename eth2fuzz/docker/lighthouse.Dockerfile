@@ -70,6 +70,9 @@ RUN rm -rf lighthouse/.git \
  && git add . \
  && GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" git commit -q -m "vendor lighthouse"
 
+# Inside Docker, switch fuzz target dependencies to use git=file:///eth2fuzz/lighthouse for isolation
+RUN bash workspace/tools/set_docker_git_deps.sh
+
 # Build the CLI tool
 RUN make -f eth2fuzz.mk build
 
