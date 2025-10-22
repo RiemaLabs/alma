@@ -42,7 +42,7 @@ extern crate ghelper; use ghelper::verifier::NullVerifier as GNullVerifier;
 fn grandine_verdict(bytes:&[u8], state_path:&str)->Option<bool>{
     let x = gtypes::phase0::containers::ProposerSlashing::from_ssz(&*GCONFIG, bytes).ok()?;
     let st = std::fs::read(state_path).ok()?; let gstate = gtypes::combined::BeaconState::<GMainnet>::from_ssz(&*GCONFIG,&st).ok()?;
-    Some(transition_functions::unphased::block_processing::validate_proposer_slashing_with_verifier(&*GCONFIG,&*GPUBKEY,&gstate,x,GNullVerifier).is_ok())
+    Some(gtrans::unphased::validate_proposer_slashing_with_verifier(&*GCONFIG,&*GPUBKEY,&gstate,x,GNullVerifier).is_ok())
 }
 
 fuzz_target!(|data:&[u8]|{let x:ProposerSlashing=match ProposerSlashing::from_ssz_bytes(data){Ok(v)=>v,Err(_)=>return};let lh_ok=lighthouse_verdict(&CTX.state,&x); if let Some(gr_ok)=grandine_verdict(data,&CTX.path){ if lh_ok!=gr_ok{panic!("DIFF MISMATCH: lighthouse={}, grandine={}",lh_ok,gr_ok);} }});
