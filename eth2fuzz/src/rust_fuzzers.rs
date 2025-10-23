@@ -462,15 +462,35 @@ impl FuzzerLibfuzzer {
         if let Some(seed) = self.config.seed {
             args.push(format!("-seed={}", seed));
         };
-        // Launch the fuzzer using cargo
-        let fuzzer_bin = Command::new("cargo")
-            .args(&["+nightly", "fuzz", "run", &target.name()])
-            .args(&args)
-            .env(
-                "ETH2FUZZ_BEACONSTATE",
-                format!("{}", state_dir()?.display()),
-            )
-            .env("RUSTFLAGS", &rust_args)
+        // Determine log location from mode/tag env (match Honggfuzz pattern for tooling compatibility)
+        let mode = std::env::var("ETH2FUZZ_RUN_MODE").unwrap_or_else(|_| "base".to_string());
+        let tag = std::env::var("ETH2FUZZ_TAG").unwrap_or_else(|_| "default".to_string());
+        let cwd = env::current_dir().context("error getting current directory")?;
+        let logs_dir = cwd
+            .join("workspace")
+            .join("logs")
+            .join(tag)
+            .join(mode)
+            .join("hfuzz")
+            .join("logs");
+        fs::create_dir_all(&logs_dir).ok();
+        let log_file = logs_dir.join(format!("{}.log", target.name()));
+
+        // Launch libFuzzer and tee output to per-target log for downstream RL parsing
+        let cmd = format!(
+            "export ETH2FUZZ_BEACONSTATE=\"{}\"; \
+             export RUSTFLAGS=\"{}\"; \
+             cargo +nightly fuzz run {} {} 2>&1 | tee -a {}",
+            state_dir()?.display(),
+            rust_args,
+            &target.name(),
+            args.join(" "),
+            log_file.display()
+        );
+
+        let status = Command::new("/bin/sh")
+            .arg("-lc")
+            .arg(cmd)
             .current_dir(&fuzz_dir)
             .spawn()
             .context(format!(
@@ -485,7 +505,7 @@ impl FuzzerLibfuzzer {
                 target.name()
             ))?;
 
-        if !fuzzer_bin.success() {
+        if !status.success() {
             return Err(FuzzerQuit.into());
         }
         Ok(())
