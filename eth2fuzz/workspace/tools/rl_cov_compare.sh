@@ -30,15 +30,40 @@ extract_cov() {
 
 echo "target,mode,first_cov,last_cov,growth_per_min,logfile"
 
-for t in $(get_targets); do
-  label=$(corpora_label "$t")
-  if [ -z "$label" ]; then label="attestation"; fi
-  # baseline
+# detect cores and compute workers per target
+TARGETS=( $(get_targets) )
+NT=${#TARGETS[@]}
+NCORES=$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) )
+W=$(( NCORES / (NT>0?NT:1) )); if [ "$W" -lt 1 ]; then W=1; fi
+export RAYON_NUM_THREADS=1
+
+# run baseline in parallel
+pids=()
+for t in "${TARGETS[@]}"; do
+  label=$(corpora_label "$t"); if [ -z "$label" ]; then label="attestation"; fi
   BLOG="$LOG_DIR/${t}_baseline.log"
-  echo "[baseline] $t for ${DUR}s"
-  (cd "$FUZZ_DIR" && cargo +nightly fuzz run "$t" "$CORPORA/$label" -- -max_total_time=$DUR) 2>&1 | tee "$BLOG" >/dev/null || true
+  echo "[baseline] $t for ${DUR}s (workers=$W jobs=$W)"
+  (cd "$FUZZ_DIR" && cargo +nightly fuzz run "$t" "$CORPORA/$label" -- -max_total_time=$DUR -workers=$W -jobs=$W) \
+    2>&1 | tee "$BLOG" >/dev/null || true &
+  pids+=( $! )
+done
+wait "${pids[@]}" || true
+
+# run RL in parallel
+pids=()
+for t in "${TARGETS[@]}"; do
+  RLOG="$LOG_DIR/${t}_rl.log"
+  echo "[rl] $t total=${DUR}s segment=${SEG}s (threads=$W)"
+  (cd "$ROOT" && cargo run -- rl-fuzz -q "$t" --fuzzer Libfuzzer --total $DUR --segment $SEG -n $W) \
+    2>&1 | tee "$RLOG" >/dev/null || true &
+  pids+=( $! )
+done
+wait "${pids[@]}" || true
+
+# summarize coverage
+for t in "${TARGETS[@]}"; do
+  BLOG="$LOG_DIR/${t}_baseline.log"
   read fc lc < <(extract_cov "$BLOG") || true
-  # growth per minute
   gpm=0; if [ "$fc" != "" ] && [ "$lc" != "" ]; then gpm=$(python3 - <<PY
 fc=$fc; lc=$lc; dur=$DUR
 print((lc-fc)/max(dur/60.0,1.0))
@@ -46,15 +71,9 @@ PY
 ); fi
   echo "$t,baseline,$fc,$lc,$gpm,$BLOG"
 
-  # RL (single-target filter)
-  RLOG="$LOG_DIR/${t}_rl.log"
-  echo "[rl] $t total=${DUR}s segment=${SEG}s"
-  (cd "$ROOT" && cargo run -- rl-fuzz -q "$t" --fuzzer Libfuzzer --total $DUR --segment $SEG) 2>&1 | tee "$RLOG" >/dev/null || true
-  # Prefer RL hfuzz log (engine writes per-target logs under workspace/logs/<tag>/rl/hfuzz/logs/<target>.log)
   RL_TAG=${ETH2FUZZ_TAG:-default}
   RL_FUZZ_LOG="$ROOT/workspace/logs/$RL_TAG/rl/hfuzz/logs/${t}.log"
-  SRC_LOG="$RLOG"
-  if [ -f "$RL_FUZZ_LOG" ]; then SRC_LOG="$RL_FUZZ_LOG"; fi
+  SRC_LOG="$RLOG"; [ -f "$RL_FUZZ_LOG" ] && SRC_LOG="$RL_FUZZ_LOG"
   read fc2 lc2 < <(extract_cov "$SRC_LOG") || true
   gpm2=0; if [ "$fc2" != "" ] && [ "$lc2" != "" ]; then gpm2=$(python3 - <<PY
 fc=$fc2; lc=$lc2; dur=$DUR
