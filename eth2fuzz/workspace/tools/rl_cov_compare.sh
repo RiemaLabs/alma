@@ -21,9 +21,14 @@ corpora_label() {
   (cd "$ROOT" && cargo run -- corpora-label "$1" 2>/dev/null)
 }
 
-extract_cov() {
-  # Extract first and last coverage numbers from any line that contains 'cov: <num>'
-  # Works for both baseline (DONE cov: ...) and RL (pulse cov: ... / REDUCE cov: ...)
+extract_cov_done() {
+  # Prefer DONE cov lines for baseline (more stable)
+  rg -n "DONE\s+cov:\s+[0-9]+" -N "$1" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i=="cov:"){print $(i+1)}}}' | \
+    awk 'NR==1{fc=$1} {lc=$1} END{ if(NR==0){print "0 0"} else {print fc, lc} }'
+}
+
+extract_cov_any() {
+  # Fallback: any cov lines (works for RL pulse/REDUCE and baseline if no DONE)
   rg -n "cov:\s+[0-9]+" -N "$1" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i=="cov:"){print $(i+1)}}}' | \
     awk 'NR==1{fc=$1} {lc=$1} END{ if(NR==0){print "0 0"} else {print fc, lc} }'
 }
@@ -63,7 +68,10 @@ wait "${pids[@]}" || true
 # summarize coverage
 for t in "${TARGETS[@]}"; do
   BLOG="$LOG_DIR/${t}_baseline.log"
-  read fc lc < <(extract_cov "$BLOG") || true
+  read fc lc < <(extract_cov_done "$BLOG") || true
+  if [ "$fc" = "0" ] && [ "$lc" = "0" ]; then
+    read fc lc < <(extract_cov_any "$BLOG") || true
+  fi
   gpm=0; if [ "$fc" != "" ] && [ "$lc" != "" ]; then gpm=$(python3 - <<PY
 fc=$fc; lc=$lc; dur=$DUR
 print((lc-fc)/max(dur/60.0,1.0))
@@ -73,8 +81,9 @@ PY
 
   RL_TAG=${ETH2FUZZ_TAG:-default}
   RL_FUZZ_LOG="$ROOT/workspace/logs/$RL_TAG/rl/hfuzz/logs/${t}.log"
+  RLOG="$LOG_DIR/${t}_rl.log"
   SRC_LOG="$RLOG"; [ -f "$RL_FUZZ_LOG" ] && SRC_LOG="$RL_FUZZ_LOG"
-  read fc2 lc2 < <(extract_cov "$SRC_LOG") || true
+  read fc2 lc2 < <(extract_cov_any "$SRC_LOG") || true
   gpm2=0; if [ "$fc2" != "" ] && [ "$lc2" != "" ]; then gpm2=$(python3 - <<PY
 fc=$fc2; lc=$lc2; dur=$DUR
 print((lc-fc)/max(dur/60.0,1.0))
