@@ -2,6 +2,7 @@ use failure::{Error, ResultExt};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
+use crate::env::root_dir;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -465,13 +466,13 @@ impl FuzzerLibfuzzer {
         // Determine log location from mode/tag env (match Honggfuzz pattern for tooling compatibility)
         let mode = std::env::var("ETH2FUZZ_RUN_MODE").unwrap_or_else(|_| "base".to_string());
         let tag = std::env::var("ETH2FUZZ_TAG").unwrap_or_else(|_| "default".to_string());
-        let cwd = env::current_dir().context("error getting current directory")?;
-        let logs_dir = cwd
+        let proj_root = root_dir().unwrap_or(env::current_dir().unwrap_or(std::path::PathBuf::from(".")));
+        let logs_dir = proj_root
             .join("workspace")
             .join("logs")
             .join(tag)
             .join(mode)
-            .join("hfuzz")
+            .join("libfuzzer")
             .join("logs");
         fs::create_dir_all(&logs_dir).ok();
         let log_file = logs_dir.join(format!("{}.log", target.name()));
