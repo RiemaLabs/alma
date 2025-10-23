@@ -162,6 +162,14 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => return,
     };
 
+    // Always drive Lighthouse target code to keep coverage evolving
+    // (compare gating only affects differential check, not coverage path)
+    {
+        extern crate fuzz_targets as lh_targets;
+        // invoke the same helper the standalone harness uses
+        lh_targets::fuzz_lighthouse_attestation(CTX.state.clone(), data);
+    }
+
     // Gating to avoid comparing apples to oranges (phase/window/target invariants):
     // - phase_at_slot(state.slot) == phase_at_slot(att.slot)
     // - state.slot in [att.slot + MIN_DELAY, att.slot + SLOTS_PER_EPOCH]
@@ -192,10 +200,12 @@ fuzz_target!(|data: &[u8]| {
 
         // phase_at_slot(state.slot) == phase_at_slot(att.slot)
         if state_is_electra != att_is_electra {
+            // skip compare but keep coverage
             return;
         }
         // LH variant matches expected phase for att.slot
         if att_is_electra_variant != att_is_electra {
+            // skip compare but keep coverage
             return;
         }
         // inclusion window: state.slot ∈ [att.slot + MIN_DELAY, att.slot + SLOTS_PER_EPOCH]

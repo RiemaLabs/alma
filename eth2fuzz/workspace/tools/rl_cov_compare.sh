@@ -50,13 +50,18 @@ PY
   RLOG="$LOG_DIR/${t}_rl.log"
   echo "[rl] $t total=${DUR}s segment=${SEG}s"
   (cd "$ROOT" && cargo run -- rl-fuzz -q "$t" --fuzzer Libfuzzer --total $DUR --segment $SEG) 2>&1 | tee "$RLOG" >/dev/null || true
-  read fc2 lc2 < <(extract_cov "$RLOG") || true
+  # Prefer RL hfuzz log (engine writes per-target logs under workspace/logs/<tag>/rl/hfuzz/logs/<target>.log)
+  RL_TAG=${ETH2FUZZ_TAG:-default}
+  RL_FUZZ_LOG="$ROOT/workspace/logs/$RL_TAG/rl/hfuzz/logs/${t}.log"
+  SRC_LOG="$RLOG"
+  if [ -f "$RL_FUZZ_LOG" ]; then SRC_LOG="$RL_FUZZ_LOG"; fi
+  read fc2 lc2 < <(extract_cov "$SRC_LOG") || true
   gpm2=0; if [ "$fc2" != "" ] && [ "$lc2" != "" ]; then gpm2=$(python3 - <<PY
 fc=$fc2; lc=$lc2; dur=$DUR
 print((lc-fc)/max(dur/60.0,1.0))
 PY
 ); fi
-  echo "$t,rl,$fc2,$lc2,$gpm2,$RLOG"
+  echo "$t,rl,$fc2,$lc2,$gpm2,$SRC_LOG"
 done
 
 echo "Done. Logs under $LOG_DIR"
